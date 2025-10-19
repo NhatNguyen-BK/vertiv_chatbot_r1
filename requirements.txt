@@ -8,6 +8,7 @@ charset-normalizer==3.4.3
 click==8.3.0
 distro==1.9.0
 fastapi==0.118.0
+fastembed
 ffmpy==0.6.1
 filelock==3.19.1
 fsspec==2025.9.0

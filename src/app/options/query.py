@@ -1,11 +1,13 @@
 # src/app/query.py
 from qdrant_client import QdrantClient
+from qdrant_client.models import Prefetch, QueryRequest
 from openai import OpenAI
 import os
-
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
+from fastembed import SparseTextEmbedding
+
 load_dotenv()
 
 # Import tools mới
@@ -16,14 +18,27 @@ oa = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 EMBED_MODEL = os.getenv("EMBED_MODEL", "text-embedding-3-large")
+SPARSE_MODEL = os.getenv("SPARSE_MODEL", "Qdrant/bm25")
 GEN_MODEL   = os.getenv("GEN_MODEL", "gpt-4o-mini")
 
 client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 oa = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+# Khởi tạo sparse embedding model
+sparse_model = SparseTextEmbedding(model_name=SPARSE_MODEL)
+
 def _embed(text: str):
+    """Tạo dense vector từ OpenAI"""
     e = oa.embeddings.create(model=EMBED_MODEL, input=[text])
     return e.data[0].embedding
+
+def _embed_sparse(text: str):
+    """Tạo sparse vector từ fastembed"""
+    sparse_vec = list(sparse_model.embed([text]))[0]
+    return {
+        "indices": sparse_vec.indices.tolist(),
+        "values": sparse_vec.values.tolist()
+    }
 
 def answer(query: str, product_name: str | None = None):
     # ===== BƯỚC 1: Routing - kiểm tra loại câu hỏi =====
@@ -39,20 +54,35 @@ def answer(query: str, product_name: str | None = None):
     return _rag_answer(query, product_name)
 
 def _rag_answer(query: str, product_name: str | None = None):
-    # 1) Lấy vector câu hỏi
-    qvec = _embed(query)
+    # 1) Lấy vector câu hỏi (dense và sparse)
+    dense_vec = _embed(query)
+    sparse_vec = _embed_sparse(query)
 
-    # 2) Tìm trong Qdrant với filter nếu có product_name
+    # 2) Hybrid search trong Qdrant (kết hợp dense + sparse)
+    # Sử dụng prefetch để tìm riêng rồi kết hợp
     search_params = {
         "collection_name": "vertiv_docs",
-        "query_vector": qvec,
+        "prefetch": [
+            Prefetch(
+                query=dense_vec,
+                using="dense",
+                limit=10
+            ),
+            Prefetch(
+                query=sparse_vec,
+                using="sparse",
+                limit=10
+            )
+        ],
+        "query": dense_vec,  # Fusion vector để re-rank
+        "using": "dense",
         "limit": 5,
     }
     
     # Thêm filter nếu có product_name
     if product_name:
         from qdrant_client.models import Filter, FieldCondition, MatchValue
-        search_params["query_filter"] = Filter(
+        query_filter = Filter(
             must=[
                 FieldCondition(
                     key="product_name",
@@ -60,9 +90,13 @@ def _rag_answer(query: str, product_name: str | None = None):
                 )
             ]
         )
+        # Thêm filter vào cả prefetch
+        search_params["prefetch"][0].filter = query_filter
+        search_params["prefetch"][1].filter = query_filter
+        search_params["query_filter"] = query_filter  # Đổi từ "filter" thành "query_filter"
     
-    hits = client.search(**search_params)
-
+    hits = client.query_points(**search_params).points
+    print("sssssssssssssss: ", hits)
     # 3) Gom ngữ cảnh & nguồn
     contexts = []
     sources = []  # list[str] để hiển thị

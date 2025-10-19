@@ -7,7 +7,14 @@ from typing import List, Dict, Iterable
 from dotenv import load_dotenv
 from openai import OpenAI
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import Distance, VectorParams, PointStruct
+from qdrant_client.http.models import (
+    Distance, 
+    VectorParams, 
+    PointStruct,
+    SparseVectorParams,
+    SparseIndexParams
+)
+from fastembed import SparseTextEmbedding
 
 # modules nội bộ
 from .schema import DocMeta
@@ -22,13 +29,14 @@ if not OPENAI_API_KEY:
     raise RuntimeError("OPENAI_API_KEY chưa có. Thêm vào .env")
 
 EMBED_MODEL    = os.getenv("EMBED_MODEL", "text-embedding-3-large")
+SPARSE_MODEL   = os.getenv("SPARSE_MODEL", "Qdrant/bm25")  # hoặc "Qdrant/bm42-all-minilm-l6-v2-attentions"
 QDRANT_HOST    = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT    = int(os.getenv("QDRANT_PORT", "6333"))
 COLLECTION     = os.getenv("QDRANT_COLLECTION", "vertiv_docs")  # có thể đặt theo model nếu muốn
 DATA_ROOT      = "data"   # sẽ quét: data/<product_line>/<product_name>/*
 
 # tham số chunk
-CHUNK_SIZE     = 1000
+CHUNK_SIZE     = 4096
 CHUNK_OVERLAP  = 200
 BATCH_EMB      = 64
 
@@ -39,6 +47,9 @@ qdrant = QdrantClient(
     prefer_grpc=False,
     check_compatibility=False,
 )
+
+# Khởi tạo sparse embedding model
+sparse_model = SparseTextEmbedding(model_name=SPARSE_MODEL)
 
 # ============== TIỆN ÍCH ==============
 def make_chunks(text: str, max_chars: int, overlap: int) -> List[str]:
@@ -56,15 +67,44 @@ def make_chunks(text: str, max_chars: int, overlap: int) -> List[str]:
     return out
 
 def embed_texts(batch: List[str]) -> List[List[float]]:
+    """Tạo dense vectors từ OpenAI"""
     resp = oa.embeddings.create(model=EMBED_MODEL, input=batch)
     return [d.embedding for d in resp.data]
 
-def ensure_collection(dim: int):
+def embed_sparse(batch: List[str]) -> List[Dict]:
+    """
+    Tạo sparse vectors từ fastembed.
+    Trả về list of dicts với format: {"indices": [...], "values": [...]}
+    """
+    sparse_vecs = list(sparse_model.embed(batch))
+    result = []
+    for vec in sparse_vecs:
+        result.append({
+            "indices": vec.indices.tolist(),
+            "values": vec.values.tolist()
+        })
+    return result
+
+def ensure_collection(dense_dim: int):
+    """
+    Tạo collection với cả dense và sparse vectors.
+    - Dense vector: "dense" (OpenAI embedding)
+    - Sparse vector: "sparse" (BM25 hoặc SPLADE)
+    """
     names = [c.name for c in qdrant.get_collections().collections]
     if COLLECTION not in names:
         qdrant.create_collection(
             collection_name=COLLECTION,
-            vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
+            vectors_config={
+                "dense": VectorParams(size=dense_dim, distance=Distance.COSINE),
+            },
+            sparse_vectors_config={
+                "sparse": SparseVectorParams(
+                    index=SparseIndexParams(
+                        on_disk=False,
+                    )
+                )
+            }
         )
 
 def upsert_points(points: Iterable[PointStruct]):
@@ -172,24 +212,40 @@ def index_one_file(path: str):
         print(f"⚠️  No text found in {path}")
         return
 
-    # embed theo batch
-    all_vecs: List[List[float]] = []
     texts = [c["text"] for c in chunks]
+    
+    # Tạo dense vectors (OpenAI embeddings)
+    all_dense_vecs: List[List[float]] = []
     for i in range(0, len(texts), BATCH_EMB):
         batch = texts[i:i + BATCH_EMB]
-        all_vecs.extend(embed_texts(batch))
+        all_dense_vecs.extend(embed_texts(batch))
 
-    ensure_collection(dim=len(all_vecs[0]))
+    # Tạo sparse vectors (BM25/SPLADE)
+    all_sparse_vecs: List[Dict] = []
+    for i in range(0, len(texts), BATCH_EMB):
+        batch = texts[i:i + BATCH_EMB]
+        all_sparse_vecs.extend(embed_sparse(batch))
+
+    ensure_collection(dense_dim=len(all_dense_vecs[0]))
 
     points: List[PointStruct] = []
-    for i, (vec, ch) in enumerate(zip(all_vecs, chunks)):
+    for i, (dense_vec, sparse_vec, ch) in enumerate(zip(all_dense_vecs, all_sparse_vecs, chunks)):
         pid = int(hashlib.md5(f"{path}-{i}".encode()).hexdigest()[:12], 16)
         payload = ch["metadata"] | {"source_text": ch["text"]}
-        points.append(PointStruct(id=pid, vector=vec, payload=payload))
+        
+        # Tạo point với cả dense và sparse vectors
+        points.append(PointStruct(
+            id=pid, 
+            vector={
+                "dense": dense_vec,
+                "sparse": sparse_vec
+            },
+            payload=payload
+        ))
 
     upsert_points(points)
     rel = os.path.relpath(path, DATA_ROOT) if os.path.isdir(DATA_ROOT) else path
-    print(f"✅ Indexed {len(points)} chunks from {rel}")
+    print(f"✅ Indexed {len(points)} chunks from {rel} (dense + sparse vectors)")
 
 # ============== MAIN ==============
 def main():
