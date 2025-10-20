@@ -7,7 +7,7 @@ from openai import OpenAI
 import os
 from dotenv import load_dotenv
 from fastembed import SparseTextEmbedding
-
+import json
 load_dotenv()
 
 # Import tools mới
@@ -39,6 +39,82 @@ def _embed_sparse(text: str):
         "indices": sparse_vec.indices.tolist(),
         "values": sparse_vec.values.tolist()
     }
+
+def _llm_rerank(query: str, hits: list, top_k: int = 5):
+    """
+    Sử dụng LLM (OpenAI) để đánh giá lại độ liên quan của các chunks
+    
+    Args:
+        query: Câu hỏi của người dùng
+        hits: List các ScoredPoint từ Qdrant
+        top_k: Số lượng kết quả trả về (mặc định 5)
+    
+    Returns:
+        List các chunks đã được rerank theo thứ tự relevance
+    """
+    if len(hits) <= top_k:
+        return hits
+    
+    # Chuẩn bị prompt cho LLM
+    chunks_text = []
+    for idx, hit in enumerate(hits):
+        payload = hit.payload or {}
+        text = payload.get("source_text", "")[:500]  # Giới hạn 500 ký tự
+        chunks_text.append(f"[{idx}] {text}")
+    
+    prompt = f"""Cho câu hỏi: "{query}"
+
+Đánh giá độ liên quan của các đoạn văn sau (0-10 điểm):
+
+{chr(10).join(chunks_text)}
+
+Trả về JSON array với format: [{{"index": 0, "score": 9}}, {{"index": 1, "score": 7}}, ...]
+Chỉ trả về top {top_k} kết quả có điểm cao nhất, sắp xếp giảm dần."""
+
+    try:
+        response = oa.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Bạn là chuyên gia đánh giá độ liên quan của văn bản. Chỉ trả về JSON, không giải thích."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0,
+            response_format={"type": "json_object"}
+        )
+        
+        
+        result = json.loads(response.choices[0].message.content)
+        print("Rerank result:", result)
+        
+        # Xử lý kết quả trả về
+        if isinstance(result, dict) and "results" in result:
+            rankings = result["results"]
+        elif isinstance(result, list):
+            rankings = result
+        else:
+            # Fallback nếu format không đúng
+            return hits[:top_k]
+        
+        # Sắp xếp lại hits theo rankings
+        reranked = []
+        for item in rankings[:top_k]:
+            idx = item.get("index", -1)
+            if 0 <= idx < len(hits):
+                reranked.append(hits[idx])
+        
+        # Nếu không đủ top_k, thêm các chunks còn lại
+        if len(reranked) < top_k:
+            used_indices = {item.get("index") for item in rankings}
+            for idx, hit in enumerate(hits):
+                if idx not in used_indices and len(reranked) < top_k:
+                    reranked.append(hit)
+        
+        return reranked[:top_k]
+    
+    except Exception as e:
+        print(f"LLM rerank error: {e}")
+        # Fallback về kết quả gốc nếu có lỗi
+        return hits[:top_k]
 
 def answer(query: str, product_name: str | None = None):
     # ===== BƯỚC 1: Routing - kiểm tra loại câu hỏi =====
@@ -76,7 +152,7 @@ def _rag_answer(query: str, product_name: str | None = None):
         ],
         "query": dense_vec,  # Fusion vector để re-rank
         "using": "dense",
-        "limit": 5,
+        "limit": 10,
     }
     
     # Thêm filter nếu có product_name
@@ -97,10 +173,17 @@ def _rag_answer(query: str, product_name: str | None = None):
     
     hits = client.query_points(**search_params).points
     print("sssssssssssssss: ", hits)
-    # 3) Gom ngữ cảnh & nguồn
+    
+    # 3) LLM Reranking - Sử dụng OpenAI để đánh giá lại 10 kết quả
+    if len(hits) > 5:
+        reranked_hits = _llm_rerank(query, hits, top_k=5)
+    else:
+        reranked_hits = hits
+    
+    # 4) Gom ngữ cảnh & nguồn từ kết quả đã rerank
     contexts = []
     sources = []  # list[str] để hiển thị
-    for h in hits:
+    for h in reranked_hits:
         p = h.payload or {}
         meta = p.get("metadata", {})  # nếu lúc upsert bạn gộp metadata vào payload
         # tùy vào cách bạn lưu, thử theo 2 key phổ biến:
