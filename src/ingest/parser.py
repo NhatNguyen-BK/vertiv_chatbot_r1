@@ -2,6 +2,7 @@ import fitz  # PyMuPDF - đọc PDF
 import pytesseract  # OCR cho ảnh
 from PIL import Image
 import pandas as pd
+from llama_parse import LlamaParse
 import io
 import os
 
@@ -54,3 +55,26 @@ def parse_any(path: str) -> str:
     else:
         print(f"[⚠️] Không hỗ trợ định dạng {ext}")
         return ""
+    
+def parser_markdown(pdf_path):
+    # 1. Parse PDF sang Markdown
+    parser = LlamaParse(
+        result_type="markdown",
+        auto_mode=True,
+        auto_mode_trigger_on_image_in_page=True,
+        auto_mode_trigger_on_table_in_page=True,
+        skip_diagonal_text=True,
+        preserve_layout_alignment_across_pages=True,
+        num_workers=4,
+        max_timeout=1000,
+    )  # hoặc "md"
+    print("Đang parse PDF sang Markdown...")
+    parsed_docs = parser.load_data(pdf_path)  # Mỗi trang PDF -> 1 Document dạng markdown
+
+    parts = []
+
+    for i, d in enumerate(parsed_docs, start=1):
+        parts.append(d.text)
+
+    merged_text = "".join(parts)
+    return merged_text

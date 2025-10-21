@@ -137,7 +137,7 @@ def _rag_answer(query: str, product_name: str | None = None):
     # 2) Hybrid search trong Qdrant (kết hợp dense + sparse)
     # Sử dụng prefetch để tìm riêng rồi kết hợp
     search_params = {
-        "collection_name": "vertiv_docs",
+        "collection_name": "vertiv_docs1",
         "prefetch": [
             Prefetch(
                 query=dense_vec,

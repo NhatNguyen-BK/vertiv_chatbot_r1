@@ -15,6 +15,7 @@ venv/
 
 # Project data
 data/
+output/
 qdrant_storage/
 outputs/
 *.pdf
@@ -24,4 +25,4 @@ outputs/
 # IDE folders
 .vscode/
 .idea/
-markitdown
+markitdown/
