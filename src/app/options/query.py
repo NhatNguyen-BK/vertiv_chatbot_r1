@@ -20,6 +20,7 @@ QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 EMBED_MODEL = os.getenv("EMBED_MODEL", "text-embedding-3-large")
 SPARSE_MODEL = os.getenv("SPARSE_MODEL", "Qdrant/bm25")
 GEN_MODEL   = os.getenv("GEN_MODEL", "gpt-4o-mini")
+QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "vertiv_docs")
 
 client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 oa = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -137,7 +138,7 @@ def _rag_answer(query: str, product_name: str | None = None):
     # 2) Hybrid search trong Qdrant (kết hợp dense + sparse)
     # Sử dụng prefetch để tìm riêng rồi kết hợp
     search_params = {
-        "collection_name": "vertiv_docs1",
+        "collection_name": QDRANT_COLLECTION,
         "prefetch": [
             Prefetch(
                 query=dense_vec,
