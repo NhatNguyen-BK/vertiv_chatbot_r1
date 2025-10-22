@@ -31,7 +31,7 @@ EMBED_MODEL    = os.getenv("EMBED_MODEL", "text-embedding-3-large")
 SPARSE_MODEL   = os.getenv("SPARSE_MODEL", "Qdrant/bm25")  # hoặc "Qdrant/bm42-all-minilm-l6-v2-attentions"
 QDRANT_HOST    = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT    = int(os.getenv("QDRANT_PORT", "6333"))
-COLLECTION     = os.getenv("QDRANT_COLLECTION", "vertiv_docs")  # có thể đặt theo model nếu muốn
+COLLECTION     = os.getenv("QDRANT_COLLECTION", "vertiv_docs1")  # có thể đặt theo model nếu muốn
 DATA_ROOT      = "data"   # sẽ quét: data/<product_line>/<product_name>/*
 os.environ["LLAMA_CLOUD_API_KEY"] = os.getenv("LLAMA_API_KEY")
 # tham số chunk
@@ -39,7 +39,7 @@ CHUNK_SIZE     = 4096
 CHUNK_OVERLAP  = 200
 BATCH_EMB      = 64
 
-oa = OpenAI(api_key=OPENAI_API_KEY)
+oa = OpenAI()
 qdrant = QdrantClient(
     host=QDRANT_HOST,
     port=QDRANT_PORT,

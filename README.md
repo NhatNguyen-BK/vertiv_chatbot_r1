@@ -1,3 +1,4 @@
+# Sử dụng python 3.12
 # Chạy thư viện
 ```bash
 pip install -r requirements.txt
