@@ -205,22 +205,73 @@ def _rag_answer(query: str, product_name: str | None = None):
         return "Không có thông tin.", []
 
     # 5) Gọi LLM tổng hợp kèm guideline ngắn + ngữ cảnh
+    # Đánh số các đoạn ngữ cảnh
+    numbered_contexts = []
+    for idx, ctx in enumerate(contexts, 1):
+        numbered_contexts.append(f"[Đoạn {idx}]\n{ctx}")
+    
     sys = (
-        "Bạn là trợ lý kỹ thuật Vertiv. Chỉ dùng đúng thông tin trong ngữ cảnh; "
-        "nếu không thấy, trả lời “Không có thông tin.”"
+        "Bạn là trợ lý kỹ thuật Vertiv. Chỉ dùng đúng thông tin trong ngữ cảnh được cung cấp.\n"
+        "Khi trả lời, bạn PHẢI trích dẫn chính xác đoạn văn bản từ ngữ cảnh mà bạn sử dụng.\n"
+        "Trả về JSON với format:\n"
+        "{\n"
+        '  "answer": "câu trả lời của bạn",\n'
+        '  "citations": [\n'
+        '    {"quote": "đoạn trích dẫn chính xác", "context_index": 1}\n'
+        '  ]\n'
+        "}\n"
+        "Nếu không có thông tin, trả về answer là 'Không có thông tin.' và citations rỗng."
     )
     prompt = (
-        f"[Ngữ cảnh]\n{'\n---\n'.join(contexts)}\n\n"
+        f"[Ngữ cảnh]\n{chr(10).join(numbered_contexts)}\n\n"
         f"[Câu hỏi] {query}\n"
-        f"[Yêu cầu] Trả lời ngắn gọn, có gạch đầu dòng nếu là thông số."
+        f"[Yêu cầu] Trả lời ngắn gọn, có gạch đầu dòng nếu là thông số. "
+        f"Trích dẫn chính xác các đoạn văn bản từ ngữ cảnh mà bạn sử dụng (giới hạn mỗi quote trong 150 ký tự)."
     )
     chat = oa.chat.completions.create(
         model=GEN_MODEL,
         messages=[{"role": "system", "content": sys},
                   {"role": "user", "content": prompt}],
         temperature=0.2,
+        response_format={"type": "json_object"}
     )
-    reply = chat.choices[0].message.content.strip()
-    if not reply or reply.lower().startswith("không có"):
-        return "Không có thông tin.", []
-    return reply, sources[:3]  # trả tối đa 3 nguồn
+    
+    try:
+        result = json.loads(chat.choices[0].message.content)
+        reply = result.get("answer", "").strip()
+        citations = result.get("citations", [])
+        
+        if not reply or reply.lower().startswith("không có"):
+            return "Không có thông tin.", []
+        
+        # Tạo sources từ citations
+        final_sources = []
+        for citation in citations:
+            ctx_idx = citation.get("context_index", 1) - 1  # convert to 0-based
+            quote = citation.get("quote", "")
+            
+            if 0 <= ctx_idx < len(reranked_hits):
+                h = reranked_hits[ctx_idx]
+                p = h.payload or {}
+                meta = p.get("metadata", {})
+                src = meta.get("source") or p.get("source") or "unknown.pdf"
+                pages = meta.get("page_range") or p.get("page_range")
+                page_str = ""
+                if isinstance(pages, list) and pages:
+                    page_str = f" (trang {pages[0]})"
+                
+                final_sources.append(f"- **{src}**{page_str}\n  > *\"{quote}\"*")
+        
+        # Nếu không có citations, fallback về sources cũ
+        if not final_sources:
+            final_sources = sources[:3]
+        
+        return reply, final_sources[:3]
+    
+    except Exception as e:
+        print(f"Error parsing LLM response: {e}")
+        # Fallback về cách cũ nếu có lỗi
+        reply = chat.choices[0].message.content.strip()
+        if not reply or reply.lower().startswith("không có"):
+            return "Không có thông tin.", []
+        return reply, sources[:3]

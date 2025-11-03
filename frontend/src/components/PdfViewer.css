@@ -1,0 +1,129 @@
+.pdf-viewer-container {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  height: 100%;
+  overflow: hidden;
+}
+
+.pdf-viewer-content {
+  padding: 16px;
+  height: 100%;
+  overflow-y: auto;
+  background: #f5f5f5;
+}
+
+.pdf-page-container {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid var(--border);
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.pdf-page-number {
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  padding: 8px;
+  background: white;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid var(--border);
+  font-weight: 500;
+}
+
+.pdf-page-loading,
+.pdf-page-error {
+  text-align: center;
+  padding: 16px;
+}
+
+.pdf-page-error {
+  color: #dc2626;
+}
+
+.pdf-loading,
+.pdf-error {
+  text-align: center;
+  padding: 32px;
+}
+
+.pdf-spinner {
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary-color);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.pdf-error {
+  color: #dc2626;
+  background: #fee2e2;
+  border-radius: 8px;
+}
+
+.pdf-error-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.pdf-loading-doc,
+.pdf-error-doc {
+  text-align: center;
+  padding: 16px;
+}
+
+.pdf-error-doc {
+  color: #dc2626;
+}
+
+/* Highlighted text trong PDF */
+.highlighted-text {
+  animation: highlight-pulse 2s ease-in-out;
+}
+
+@keyframes highlight-pulse {
+  0%, 100% {
+    background: #FFA50080;
+  }
+  50% {
+    background: #FFA500CC;
+  }
+}
+
+/* PDF.js text layer styling */
+.react-pdf__Page__textContent {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  opacity: 1;
+  line-height: 1.0;
+}
+
+.react-pdf__Page__textContent span {
+  cursor: text;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .pdf-viewer-content {
+    padding: 8px;
+  }
+  
+  .pdf-page-container {
+    margin-bottom: 16px;
+  }
+}

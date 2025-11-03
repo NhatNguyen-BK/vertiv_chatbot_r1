@@ -14,7 +14,20 @@ python -m src.ingest.index_qdrant
 python -m src.ingest_llama.index_qdrant
 ```
 
-# Chạy giao diện
+# Chạy backend
 ```bash
-python -m src.app.options.gradio
+uvicorn src.app.server:app --reload --port 8000
 ```
+
+# Chạy giao diện FE
+1. Vào thư mục giao diện
+```bash
+cd frontend
+```
+2. Thêm 1 folder public/docs và thêm tất cả các file pdf vào thư mục này
+3. Chạy tiếp các lệnh sau
+```bash
+npm install
+npm run dev
+```
+
