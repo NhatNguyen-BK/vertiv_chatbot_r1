@@ -6,6 +6,9 @@ pip install -r requirements.txt
 
 # Chunk và lưu dữ liệu vào QDRANT
 ```bash
+pip install --pre chunkr-ai
+```
+```bash
 python -m src.ingest.index_qdrant
 ```
 
