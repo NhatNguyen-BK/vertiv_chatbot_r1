@@ -6,6 +6,7 @@ from llama_index.core import Settings
 import json
 import uuid
 import os
+import asyncio
 
 PAGE_MARKER_TEMPLATE = "[[__PAGE_{page}__]]"
 PAGE_MARKER_RE = re.compile(r"\[\[__PAGE_(\d+)__\]\]")

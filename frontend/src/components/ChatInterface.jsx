@@ -1,27 +1,19 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Bot, User, FileText } from 'lucide-react'
+import { Send, Bot, User, FileText, Menu } from 'lucide-react'
 import axios from 'axios'
 import ReactMarkdown from 'react-markdown'
 import PdfViewer from './PdfViewer'
+import FileSelectionTree from './FileSelectionTree'
 import './ChatInterface.css'
-
-const PRODUCTS = [
-  'Tất cả',
-  'Netsure 210',
-  'Netsure 531',
-  'Netsure 731',
-  'Liebert Apm',
-  'Liebert Exs',
-  'Liebrt Mtp',
-  'Liebert Crv',
-  'Libert Pex3',
-  'Libert Pex4'
-]
 
 function ChatInterface() {
   const [messages, setMessages] = useState([])
   const [inputMessage, setInputMessage] = useState('')
-  const [selectedProduct, setSelectedProduct] = useState('Tất cả')
+
+  // Selected files from Tree
+  const [selectedFiles, setSelectedFiles] = useState([])
+  const [showSidebar, setShowSidebar] = useState(true) // Toggle sidebar on mobile/desktop
+
   const [strictMode, setStrictMode] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [showPdfViewer, setShowPdfViewer] = useState(false)
@@ -50,9 +42,12 @@ function ChatInterface() {
     setIsLoading(true)
 
     try {
+      // Backend expects list of strings (filenames) or null for all
+      const fileNames = selectedFiles.length > 0 ? selectedFiles : null
+
       const response = await axios.post('/chat', {
         query: userMessage.content,
-        product_name: selectedProduct === 'Tất cả' ? null : selectedProduct
+        file_names: fileNames
       })
 
       const { answer, sources } = response.data
@@ -91,7 +86,7 @@ function ChatInterface() {
     const fileMatch = sourceText.match(/\*\*([^*]+)\*\*/)
     const pageMatch = sourceText.match(/trang (\d+)/)
     const quoteMatch = sourceText.match(/>\s*\*"([^"]+)"\*/)
-    
+
     return {
       file: fileMatch ? fileMatch[1] : null,
       page: pageMatch ? parseInt(pageMatch[1]) : null,
@@ -115,124 +110,132 @@ function ChatInterface() {
 
   return (
     <div className={`chat-layout ${showPdfViewer ? 'split-view' : ''}`}>
+      {/* Sidebar for File Selection */}
+      <div className={`chat-sidebar ${showSidebar ? 'open' : 'closed'}`}>
+        <FileSelectionTree onSelectionChange={setSelectedFiles} />
+      </div>
+
       <div className="chat-container">
         <div className="chat-header">
-          <div className="header-title">
-            <Bot className="header-icon" />
-            <h1>Vertiv Chatbot</h1>
-          </div>
-          <p className="header-subtitle">Hỗ trợ kỹ thuật Vertiv</p>
-        </div>
-
-      <div className="chat-controls">
-        <div className="control-group">
-          <label htmlFor="product-select">Chọn sản phẩm:</label>
-          <select
-            id="product-select"
-            value={selectedProduct}
-            onChange={(e) => setSelectedProduct(e.target.value)}
-            className="product-select"
-          >
-            {PRODUCTS.map(product => (
-              <option key={product} value={product}>
-                {product}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="control-group">
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={strictMode}
-              onChange={(e) => setStrictMode(e.target.checked)}
-            />
-            <span>Strict mode (chỉ trả lời nếu có dữ liệu thật)</span>
-          </label>
-        </div>
-      </div>
-
-      <div className="chat-messages">
-        {messages.length === 0 && (
-          <div className="empty-state">
-            <Bot size={48} className="empty-icon" />
-            <p>Xin chào! Tôi có thể giúp gì cho bạn về sản phẩm Vertiv?</p>
-          </div>
-        )}
-
-        {messages.map((message, index) => (
-          <div key={index} className={`message ${message.role}`}>
-            <div className="message-icon">
-              {message.role === 'user' ? (
-                <User size={20} />
-              ) : (
-                <Bot size={20} />
-              )}
-            </div>
-            <div className="message-content">
-              <ReactMarkdown>{message.content}</ReactMarkdown>
-              
-              {/* Nút xem PDF nếu có sources */}
-              {message.sources && message.sources.length > 0 && (
-                <div className="source-actions">
-                  {message.sources.map((source, idx) => {
-                    const parsed = parseSource(source)
-                    if (parsed.file && parsed.quote) {
-                      return (
-                        <button
-                          key={idx}
-                          className="view-pdf-btn"
-                          onClick={() => handleSourceClick(source)}
-                        >
-                          <FileText size={16} />
-                          <span>Xem {parsed.file} (trang {parsed.page})</span>
-                        </button>
-                      )
-                    }
-                    return null
-                  })}
-                </div>
-              )}
+          <div className="header-left">
+            <button
+              className="toggle-sidebar-btn"
+              onClick={() => setShowSidebar(!showSidebar)}
+              title={showSidebar ? "Ẩn danh sách file" : "Hiện danh sách file"}
+            >
+              <Menu size={20} />
+            </button>
+            <div className="header-title">
+              <Bot className="header-icon" />
+              <h1>Vertiv Chatbot</h1>
             </div>
           </div>
-        ))}
+          <div className="header-right">
+            <label className="checkbox-label strict-mode-toggle">
+              <input
+                type="checkbox"
+                checked={strictMode}
+                onChange={(e) => setStrictMode(e.target.checked)}
+              />
+              <span>Strict mode</span>
+            </label>
+          </div>
+        </div>
 
-        {isLoading && (
-          <div className="message assistant">
-            <div className="message-icon">
-              <Bot size={20} />
+        {/* Selected Files Hint */}
+        <div className="selection-hint">
+          {selectedFiles.length === 0 ? (
+            <span className="hint-all">Đang tìm kiếm trong <b>TẤT CẢ</b> tài liệu</span>
+          ) : (
+            <span className="hint-specific">Đang tìm kiếm trong <b>{selectedFiles.length}</b> tài liệu đã chọn</span>
+          )}
+        </div>
+
+        <div className="chat-messages">
+          {messages.length === 0 && (
+            <div className="empty-state">
+              <Bot size={48} className="empty-icon" />
+              <p>Xin chào! Tôi có thể giúp gì cho bạn về sản phẩm Vertiv?</p>
+              <p className="sub-text">
+                {selectedFiles.length === 0
+                  ? "Tôi sẽ tìm kiếm câu trả lời trong toàn bộ kho dữ liệu."
+                  : `Tôi sẽ chỉ tìm kiếm trong ${selectedFiles.length} file bạn đã chọn.`}
+              </p>
             </div>
-            <div className="message-content">
-              <div className="typing-indicator">
-                <span></span>
-                <span></span>
-                <span></span>
+          )}
+
+          {messages.map((message, index) => (
+            <div key={index} className={`message ${message.role}`}>
+              <div className="message-icon">
+                {message.role === 'user' ? (
+                  <User size={20} />
+                ) : (
+                  <Bot size={20} />
+                )}
+              </div>
+              <div className="message-content">
+                <ReactMarkdown>{message.content}</ReactMarkdown>
+
+                {/* Nút xem PDF nếu có sources */}
+                {message.sources && message.sources.length > 0 && (
+                  <div className="source-actions">
+                    {message.sources.map((source, idx) => {
+                      const parsed = parseSource(source)
+                      if (parsed.file && parsed.quote) {
+                        return (
+                          <button
+                            key={idx}
+                            className="view-pdf-btn"
+                            onClick={() => handleSourceClick(source)}
+                          >
+                            <FileText size={16} />
+                            <span>Xem {parsed.file} (trang {parsed.page})</span>
+                          </button>
+                        )
+                      }
+                      return null
+                    })}
+                  </div>
+                )}
               </div>
             </div>
-          </div>
-        )}
+          ))}
 
-        <div ref={messagesEndRef} />
-      </div>
+          {isLoading && (
+            <div className="message assistant">
+              <div className="message-icon">
+                <Bot size={20} />
+              </div>
+              <div className="message-content">
+                <div className="typing-indicator">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              </div>
+            </div>
+          )}
 
-      <form className="chat-input-form" onSubmit={handleSendMessage}>
-        <input
-          type="text"
-          value={inputMessage}
-          onChange={(e) => setInputMessage(e.target.value)}
-          placeholder="Nhập câu hỏi của bạn..."
-          className="chat-input"
-          disabled={isLoading}
-        />
-        <button
-          type="submit"
-          className="send-button"
-          disabled={!inputMessage.trim() || isLoading}
-        >
-          <Send size={20} />
-        </button>
-      </form>
+          <div ref={messagesEndRef} />
+        </div>
+
+        <form className="chat-input-form" onSubmit={handleSendMessage}>
+          <input
+            type="text"
+            value={inputMessage}
+            onChange={(e) => setInputMessage(e.target.value)}
+            placeholder="Nhập câu hỏi của bạn..."
+            className="chat-input"
+            disabled={isLoading}
+          />
+          <button
+            type="submit"
+            className="send-button"
+            disabled={!inputMessage.trim() || isLoading}
+          >
+            <Send size={20} />
+          </button>
+        </form>
       </div>
 
       {/* PDF Viewer Panel - hiển thị bên cạnh khi showPdfViewer = true */}
@@ -240,7 +243,7 @@ function ChatInterface() {
         <div className="pdf-viewer-panel">
           <div className="pdf-viewer-header">
             <h3>📄 Tài liệu tham khảo</h3>
-            <button 
+            <button
               className="close-pdf-btn"
               onClick={() => setShowPdfViewer(false)}
             >

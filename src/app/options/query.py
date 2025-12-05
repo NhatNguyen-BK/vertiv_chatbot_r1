@@ -119,7 +119,7 @@ Chỉ trả về top {top_k} kết quả có điểm cao nhất, sắp xếp gi�
         # Fallback về kết quả gốc nếu có lỗi
         return hits[:top_k]
 
-def answer(query: str, product_name: str | None = None):
+def answer(query: str, file_names: list[str] | None = None):
     # ===== BƯỚC 1: Routing - kiểm tra loại câu hỏi =====
     route_result = route_query(query)
     
@@ -130,15 +130,15 @@ def answer(query: str, product_name: str | None = None):
         return response, sources
     
     # ===== BƯỚC 2: RAG - tìm kiếm trong Qdrant =====
-    return _rag_answer(query, product_name)
+    return _rag_answer(query, file_names)
 
-def _rag_answer(query: str, product_name: str | None = None):
+def _rag_answer(query: str, file_names: list[str] | None = None):
     # 1) Lấy vector câu hỏi (dense và sparse)
     collections = client.get_collections()
     print(f"✅ Connected to Qdrant. Collections: {[c.name for c in collections.collections]}")
     dense_vec = _embed(query)
     sparse_vec = _embed_sparse(query)
-    print("sssssssssss: ", QDRANT_COLLECTION)
+    print("Collection: ", QDRANT_COLLECTION)
     # 2) Hybrid search trong Qdrant (kết hợp dense + sparse)
     # Sử dụng prefetch để tìm riêng rồi kết hợp
     search_params = {
@@ -160,21 +160,21 @@ def _rag_answer(query: str, product_name: str | None = None):
         "limit": 10,
     }
     
-    # Thêm filter nếu có product_name
-    if product_name:
-        from qdrant_client.models import Filter, FieldCondition, MatchValue
+    # Thêm filter nếu có file_names (filter theo source field trong metadata)
+    if file_names and len(file_names) > 0:
+        from qdrant_client.models import Filter, FieldCondition, MatchAny
         query_filter = Filter(
             must=[
                 FieldCondition(
-                    key="product_name",
-                    match=MatchValue(value=product_name)
+                    key="source",  # Filter theo source trong metadata
+                    match=MatchAny(any=file_names)
                 )
             ]
         )
         # Thêm filter vào cả prefetch
         search_params["prefetch"][0].filter = query_filter
         search_params["prefetch"][1].filter = query_filter
-        search_params["query_filter"] = query_filter  # Đổi từ "filter" thành "query_filter"
+        search_params["query_filter"] = query_filter
     
     hits = client.query_points(**search_params).points
     print("sssssssssssssss: ", hits)

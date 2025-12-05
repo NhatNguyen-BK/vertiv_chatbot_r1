@@ -6,25 +6,69 @@ Các tool hỗ trợ cho chatbot:
 """
 from typing import Dict, List, Tuple
 import re
+import os
+import sys
 
-# Danh sách sản phẩm hiện có
-PRODUCTS = {
-    "DC_Power": [
-        {"name": "Netsure 210", "desc": "Hệ thống nguồn DC"},
-        {"name": "Netsure 531", "desc": "Hệ thống nguồn DC"},
-        {"name": "Netsure 731", "desc": "Hệ thống nguồn DC"},
-    ],
-    "Thermal": [
-        {"name": "Liebert Crv", "desc": "Hệ thống làm mát phòng"},
-        {"name": "Libert Pex3", "desc": "Hệ thống làm mát chính xác"},
-        {"name": "Libert Pex4", "desc": "Hệ thống làm mát chính xác"},
-    ],
-    "UPS": [
-        {"name": "Liebert Apm", "desc": "Hệ thống UPS"},
-        {"name": "Liebert Exs", "desc": "Hệ thống UPS"},
-        {"name": "Liebrt Mtp", "desc": "Hệ thống UPS"},
-    ],
-}
+# Import database modules
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
+from src.database.connect_db import SessionLocal
+from src.database import crud
+
+
+# ==================== DATABASE HELPER ====================
+def get_products_from_db() -> Dict[str, List[Dict]]:
+    """
+    Lấy danh sách sản phẩm từ database
+    Returns:
+        {
+            "DC Power": [{"name": "Netsure 210", "desc": "..."}],
+            "Thermal": [...],
+            ...
+        }
+    """
+    db = SessionLocal()
+    try:
+        result = {}
+        categories = crud.get_all_categories(db)
+        
+        for category in categories:
+            product_lines = crud.get_product_lines_by_category(db, category.id)
+            products_list = []
+            
+            for product_line in product_lines:
+                products = crud.get_products_by_product_line(db, product_line.id)
+                for product in products:
+                    products_list.append({
+                        "name": product_line.name,  # Tên product line
+                        "desc": f"{category.name} - {product.name}"  # Mô tả
+                    })
+            
+            if products_list:
+                result[category.name] = products_list
+        
+        return result
+    except Exception as e:
+        print(f"⚠️  Error getting products from DB: {e}")
+        # Fallback về danh sách mặc định nếu có lỗi
+        return {
+            "DC Power": [
+                {"name": "Netsure 210", "desc": "Hệ thống nguồn DC"},
+                {"name": "Netsure 531", "desc": "Hệ thống nguồn DC"},
+                {"name": "Netsure 731", "desc": "Hệ thống nguồn DC"},
+            ],
+            "Thermal": [
+                {"name": "Liebert Crv", "desc": "Hệ thống làm mát phòng"},
+                {"name": "Libert Pex3", "desc": "Hệ thống làm mát chính xác"},
+                {"name": "Libert Pex4", "desc": "Hệ thống làm mát chính xác"},
+            ],
+            "UPS": [
+                {"name": "Liebert Apm", "desc": "Hệ thống UPS"},
+                {"name": "Liebert Exs", "desc": "Hệ thống UPS"},
+                {"name": "Liebrt Mtp", "desc": "Hệ thống UPS"},
+            ],
+        }
+    finally:
+        db.close()
 
 # Pattern cho small talk
 SMALL_TALK_PATTERNS = [
@@ -103,26 +147,33 @@ def handle_small_talk(query: str) -> str:
 
 
 def handle_catalog_query(query: str) -> Tuple[str, List[str]]:
-    """Trả về danh sách sản phẩm"""
+    """Trả về danh sách sản phẩm từ database"""
+    # Lấy sản phẩm từ database
+    PRODUCTS = get_products_from_db()
+    
     # Tính tổng số sản phẩm
     total = sum(len(products) for products in PRODUCTS.values())
     
     response = f"**Vertiv hiện có {total} dòng sản phẩm chính:**\n\n"
     
-    # DC Power
-    response += "### 🔋 DC Power (Hệ thống nguồn DC)\n"
-    for p in PRODUCTS["DC_Power"]:
-        response += f"- **{p['name']}**: {p['desc']}\n"
+    # Icon mapping
+    icons = {
+        "DC Power": "🔋",
+        "Thermal": "❄️",
+        "UPS": "⚡"
+    }
     
-    response += "\n### ❄️ Thermal (Hệ thống làm mát)\n"
-    for p in PRODUCTS["Thermal"]:
-        response += f"- **{p['name']}**: {p['desc']}\n"
+    # Duyệt qua các category
+    for category_name, products in PRODUCTS.items():
+        icon = icons.get(category_name, "📦")
+        response += f"### {icon} {category_name}\n"
+        
+        for p in products:
+            response += f"- **{p['name']}**: {p['desc']}\n"
+        
+        response += "\n"
     
-    response += "\n### ⚡ UPS (Bộ lưu điện)\n"
-    for p in PRODUCTS["UPS"]:
-        response += f"- **{p['name']}**: {p['desc']}\n"
-    
-    response += "\n\n💡 *Bạn có thể chọn sản phẩm cụ thể ở dropdown bên trên để tìm hiểu chi tiết!*"
+    response += "💡 *Bạn có thể chọn sản phẩm cụ thể ở dropdown bên trên để tìm hiểu chi tiết!*"
     
     # Nguồn giả (vì không cần search)
     sources = ["- **Danh mục sản phẩm Vertiv**"]

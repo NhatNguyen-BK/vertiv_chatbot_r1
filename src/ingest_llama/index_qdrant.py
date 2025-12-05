@@ -20,6 +20,12 @@ from fastembed import SparseTextEmbedding
 from .schema import DocMeta
 from .step_4 import get_node_metadata          # dùng LlamaIndex nodes với metadata chi tiết
 
+# Import database modules
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+from src.database.connect_db import SessionLocal
+from src.database import crud
+
 # ============== CẤU HÌNH ==============
 load_dotenv()
 
@@ -169,6 +175,70 @@ def infer_meta_from_path(path: str, doc_type_hint: str | None = None) -> DocMeta
         checksum=None,
     )
 
+# ============== DATABASE HELPER ==============
+def save_to_database(path: str, meta: DocMeta, num_chunks: int):
+    """
+    Lưu thông tin file đã index vào database
+    """
+    db = SessionLocal()
+    try:
+        # Chuẩn hóa category_id và product_line_id
+        category_name = meta.product_line  # "DC Power", "Thermal", "UPS"
+        category_id = category_name.lower().replace(" ", "_")  # "dc_power", "thermal", "ups"
+        
+        # Tạo hoặc lấy Category
+        category = crud.get_or_create_category(
+            db, 
+            id=category_id, 
+            name=category_name
+        )
+        
+        # Chuẩn hóa product_line_id (tên sản phẩm chính, vd: "Netsure 731", "Liebert CRV")
+        # Lấy phần đầu của product_name (trước số model)
+        product_line_name = meta.product_name
+        product_line_id = product_line_name.lower().replace(" ", "_")
+        
+        # Tạo hoặc lấy ProductLine
+        product_line = crud.get_or_create_product_line(
+            db,
+            id=product_line_id,
+            name=product_line_name,
+            category_id=category_id
+        )
+        
+        # Tạo product_id từ model hoặc product_name
+        product_name = meta.model if meta.model else product_line_name
+        product_id = f"{product_line_id}_{meta.model.lower()}" if meta.model else product_line_id
+        
+        # Tạo hoặc lấy Product
+        product = crud.get_or_create_product(
+            db,
+            id=product_id,
+            name=product_name,
+            product_line_id=product_line_id
+        )
+        
+        # Tạo file_id từ checksum hoặc hash của path
+        file_name = os.path.basename(path)
+        file_id = hashlib.md5(path.encode()).hexdigest()[:16]
+        
+        # Tạo hoặc lấy File
+        file = crud.get_or_create_file(
+            db,
+            id=file_id,
+            name=file_name,
+            product_id=product_id
+        )
+        
+        print(f"✅ Saved to DB: {category_name} > {product_line_name} > {product_name} > {file_name} ({num_chunks} chunks)")
+        
+    except Exception as e:
+        print(f"⚠️  Error saving to DB for {path}: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 # ============== XỬ LÝ 1 FILE ==============
 def get_chunks_from_pdf(path: str, meta: DocMeta) -> List[Dict]:
     """
@@ -202,18 +272,28 @@ def get_chunks_from_pdf(path: str, meta: DocMeta) -> List[Dict]:
         print(f"⚠️  Error in get_chunks_from_pdf for {path}: {e}")
         return []
 
-def index_one_file(path: str):
+def index_one_file(path: str, skip_db: bool = False):
+    """
+    Index một file PDF vào Qdrant
+    
+    Args:
+        path: Đường dẫn đến file PDF
+        skip_db: Nếu True, không lưu vào database (dùng khi gọi từ upload API)
+    
+    Returns:
+        Số chunks đã index, hoặc 0 nếu thất bại
+    """
     # Chỉ xử lý PDF
     ext = os.path.splitext(path)[1].lower()
     if ext != ".pdf":
         print(f"⏭️  Skip {path} (chỉ hỗ trợ PDF)")
-        return
+        return 0
     
     meta = infer_meta_from_path(path)
     chunks = get_chunks_from_pdf(path, meta)
     if not chunks:
         print(f"⚠️  No text found in {path}")
-        return
+        return 0
 
     texts = [c["text"] for c in chunks]
     
@@ -249,6 +329,12 @@ def index_one_file(path: str):
     upsert_points(points)
     rel = os.path.relpath(path, DATA_ROOT) if os.path.isdir(DATA_ROOT) else path
     print(f"✅ Indexed {len(points)} chunks from {rel} (dense + sparse vectors)")
+    
+    # Lưu thông tin vào database (trừ khi skip_db=True)
+    if not skip_db:
+        save_to_database(path, meta, len(points))
+    
+    return len(points)
 
 # ============== MAIN ==============
 def main():

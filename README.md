@@ -34,3 +34,23 @@ npm install
 npm run dev
 ```
 
+# Chạy docker
+```php
+docker run --name vertiv-postgres \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres123 \
+  -e POSTGRES_DB=vertiv_docs \
+  -p 5432:5432 \
+  -v vertiv_pgdata:/var/lib/postgresql/data \
+  -d postgres:15
+```
+
+```php
+docker run -d \
+  --name qdrant \
+  -p 6333:6333 \
+  -p 6334:6334 \
+  -v qdrant_data:/qdrant/storage \
+  qdrant/qdrant
+```
+
