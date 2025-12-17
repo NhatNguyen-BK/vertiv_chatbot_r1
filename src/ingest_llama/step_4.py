@@ -60,17 +60,7 @@ def get_node_metadata(pdf_path):
                 metadata=node.metadata
             )
         )
-        # Lưu metadata
-        metadata_dict[idx] = dict(node.metadata)
-    output_dir = "output"
-    os.makedirs(output_dir, exist_ok=True)
-    output_file = f"{output_dir}/{nodes[0].metadata['file_name']}.md"
-    with open(output_file, "w", encoding="utf-8") as f:
-        for idx, node in enumerate(nodes, start=1):
-            f.write(f"# Chunk {idx}\n")
-            f.write(node.text + "\n\n\n\n")
-
-    print(f"Đã ghi {len(nodes)} chunk vào {output_file}")
+    
     return documents
 
     

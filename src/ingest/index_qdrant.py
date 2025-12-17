@@ -5,7 +5,6 @@ import hashlib
 from typing import List, Dict, Iterable
 
 from dotenv import load_dotenv
-from openai import OpenAI
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import (
     Distance, 
@@ -14,7 +13,7 @@ from qdrant_client.http.models import (
     SparseVectorParams,
     SparseIndexParams
 )
-from fastembed import SparseTextEmbedding
+from FlagEmbedding import BGEM3FlagModel
 
 # modules nội bộ
 from .schema import DocMeta
@@ -24,32 +23,29 @@ from .parser import parse_any                  # cho ảnh / excel / csv / md ..
 # ============== CẤU HÌNH ==============
 load_dotenv()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise RuntimeError("OPENAI_API_KEY chưa có. Thêm vào .env")
-
-EMBED_MODEL    = os.getenv("EMBED_MODEL", "text-embedding-3-large")
-SPARSE_MODEL   = os.getenv("SPARSE_MODEL", "Qdrant/bm25")  # hoặc "Qdrant/bm42-all-minilm-l6-v2-attentions"
+# BGE-M3 model - hỗ trợ cả dense và sparse vectors
+BGE_M3_MODEL = os.getenv("BGE_M3_MODEL", "BAAI/bge-m3")
 QDRANT_HOST    = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT    = int(os.getenv("QDRANT_PORT", "6333"))
 COLLECTION     = os.getenv("QDRANT_COLLECTION", "vertiv_docs")  # có thể đặt theo model nếu muốn
 DATA_ROOT      = "data"   # sẽ quét: data/<product_line>/<product_name>/*
 
-# tham số chunk
-CHUNK_SIZE     = 4096
-CHUNK_OVERLAP  = 200
-BATCH_EMB      = 64
+# tham số chunk - BGE-M3 max sequence length là 8192, nhưng optimal là 1024
+CHUNK_SIZE     = 1024  # Giảm xuống 1024 tokens cho BGE-M3
+CHUNK_OVERLAP  = 150
+BATCH_EMB      = 32    # Giảm batch size do model nặng hơn
 
-oa = OpenAI(api_key=OPENAI_API_KEY)
+# Khởi tạo BGE-M3 model (hỗ trợ cả dense, sparse và colbert)
+print("🔄 Loading BGE-M3 model...")
+bge_m3_model = BGEM3FlagModel(BGE_M3_MODEL, use_fp16=True)
+print("✅ BGE-M3 model loaded successfully!")
+
 qdrant = QdrantClient(
     host=QDRANT_HOST,
     port=QDRANT_PORT,
     prefer_grpc=False,
     check_compatibility=False,
 )
-
-# Khởi tạo sparse embedding model
-sparse_model = SparseTextEmbedding(model_name=SPARSE_MODEL)
 
 # ============== TIỆN ÍCH ==============
 def make_chunks(text: str, max_chars: int, overlap: int) -> List[str]:
@@ -66,30 +62,43 @@ def make_chunks(text: str, max_chars: int, overlap: int) -> List[str]:
         i = max(j - overlap, 0)
     return out
 
-def embed_texts(batch: List[str]) -> List[List[float]]:
-    """Tạo dense vectors từ OpenAI"""
-    resp = oa.embeddings.create(model=EMBED_MODEL, input=batch)
-    return [d.embedding for d in resp.data]
-
-def embed_sparse(batch: List[str]) -> List[Dict]:
+def embed_texts_bge_m3(batch: List[str]) -> tuple[List[List[float]], List[Dict]]:
     """
-    Tạo sparse vectors từ fastembed.
-    Trả về list of dicts với format: {"indices": [...], "values": [...]}
+    Tạo cả dense và sparse vectors từ BGE-M3.
+    Trả về:
+        - dense_vectors: List[List[float]] - dense embeddings (1024 dim)
+        - sparse_vectors: List[Dict] - sparse embeddings với format {"indices": [...], "values": [...]}
     """
-    sparse_vecs = list(sparse_model.embed(batch))
-    result = []
-    for vec in sparse_vecs:
-        result.append({
-            "indices": vec.indices.tolist(),
-            "values": vec.values.tolist()
+    # BGE-M3 encode với cả dense và sparse
+    embeddings = bge_m3_model.encode(
+        batch, 
+        return_dense=True, 
+        return_sparse=True,
+        return_colbert_vecs=False  # Không cần colbert cho use case này
+    )
+    
+    dense_vectors = embeddings['dense_vecs'].tolist()
+    
+    # Xử lý sparse vectors
+    sparse_vectors = []
+    lexical_weights = embeddings['lexical_weights']
+    
+    for weights in lexical_weights:
+        # weights là dict với token_id -> weight
+        indices = list(weights.keys())
+        values = list(weights.values())
+        sparse_vectors.append({
+            "indices": [int(idx) for idx in indices],
+            "values": [float(val) for val in values]
         })
-    return result
+    
+    return dense_vectors, sparse_vectors
 
 def ensure_collection(dense_dim: int):
     """
     Tạo collection với cả dense và sparse vectors.
-    - Dense vector: "dense" (OpenAI embedding)
-    - Sparse vector: "sparse" (BM25 hoặc SPLADE)
+    - Dense vector: "dense" (BGE-M3 dense embedding, 1024 dim)
+    - Sparse vector: "sparse" (BGE-M3 lexical weights)
     """
     names = [c.name for c in qdrant.get_collections().collections]
     if COLLECTION not in names:
@@ -214,17 +223,15 @@ def index_one_file(path: str):
 
     texts = [c["text"] for c in chunks]
     
-    # Tạo dense vectors (OpenAI embeddings)
+    # Tạo cả dense và sparse vectors từ BGE-M3 trong một lần
     all_dense_vecs: List[List[float]] = []
-    for i in range(0, len(texts), BATCH_EMB):
-        batch = texts[i:i + BATCH_EMB]
-        all_dense_vecs.extend(embed_texts(batch))
-
-    # Tạo sparse vectors (BM25/SPLADE)
     all_sparse_vecs: List[Dict] = []
+    
     for i in range(0, len(texts), BATCH_EMB):
         batch = texts[i:i + BATCH_EMB]
-        all_sparse_vecs.extend(embed_sparse(batch))
+        dense_batch, sparse_batch = embed_texts_bge_m3(batch)
+        all_dense_vecs.extend(dense_batch)
+        all_sparse_vecs.extend(sparse_batch)
 
     ensure_collection(dense_dim=len(all_dense_vecs[0]))
 
@@ -245,7 +252,7 @@ def index_one_file(path: str):
 
     upsert_points(points)
     rel = os.path.relpath(path, DATA_ROOT) if os.path.isdir(DATA_ROOT) else path
-    print(f"✅ Indexed {len(points)} chunks from {rel} (dense + sparse vectors)")
+    print(f"✅ Indexed {len(points)} chunks from {rel} (BGE-M3 dense + sparse vectors)")
 
 # ============== MAIN ==============
 def main():

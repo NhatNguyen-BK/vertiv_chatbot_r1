@@ -5,7 +5,6 @@ import hashlib
 from typing import List, Dict, Iterable
 
 from dotenv import load_dotenv
-from openai import OpenAI
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import (
     Distance, 
@@ -14,7 +13,7 @@ from qdrant_client.http.models import (
     SparseVectorParams,
     SparseIndexParams
 )
-from fastembed import SparseTextEmbedding
+from FlagEmbedding import BGEM3FlagModel
 
 # modules nội bộ
 from .schema import DocMeta
@@ -29,23 +28,28 @@ from src.database import crud
 # ============== CẤU HÌNH ==============
 load_dotenv()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise RuntimeError("OPENAI_API_KEY chưa có. Thêm vào .env")
-
-EMBED_MODEL    = os.getenv("EMBED_MODEL", "text-embedding-3-large")
-SPARSE_MODEL   = os.getenv("SPARSE_MODEL", "Qdrant/bm25")  # hoặc "Qdrant/bm42-all-minilm-l6-v2-attentions"
+# BGE-M3 model - hỗ trợ cả dense và sparse vectors
+BGE_M3_MODEL = os.getenv("BGE_M3_MODEL", "BAAI/bge-m3")
 QDRANT_HOST    = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT    = int(os.getenv("QDRANT_PORT", "6333"))
 COLLECTION     = os.getenv("QDRANT_COLLECTION", "vertiv_docs1")  # có thể đặt theo model nếu muốn
 DATA_ROOT      = "data"   # sẽ quét: data/<product_line>/<product_name>/*
 os.environ["LLAMA_CLOUD_API_KEY"] = os.getenv("LLAMA_API_KEY")
-# tham số chunk
-CHUNK_SIZE     = 4096
-CHUNK_OVERLAP  = 200
-BATCH_EMB      = 64
 
-oa = OpenAI()
+# tham số chunk - BGE-M3 max sequence length là 8192, optimal là 1024
+CHUNK_SIZE     = 1024
+CHUNK_OVERLAP  = 150
+BATCH_EMB      = 2    # Giảm batch size do model nặng hơn
+
+# Giới hạn chunk size cho BGE-M3
+MIN_CHUNK_CHARS = 70   # Chunks nhỏ hơn sẽ được merge
+MAX_CHUNK_CHARS = 1024  # Chunks lớn hơn sẽ được split
+
+# Khởi tạo BGE-M3 model (hỗ trợ cả dense, sparse)
+print("🔄 Loading BGE-M3 model...")
+bge_m3_model = BGEM3FlagModel(BGE_M3_MODEL, use_fp16=True)
+print("✅ BGE-M3 model loaded successfully!")
+
 qdrant = QdrantClient(
     host=QDRANT_HOST,
     port=QDRANT_PORT,
@@ -53,34 +57,196 @@ qdrant = QdrantClient(
     check_compatibility=False,
 )
 
-# Khởi tạo sparse embedding model
-sparse_model = SparseTextEmbedding(model_name=SPARSE_MODEL)
-
 # ============== TIỆN ÍCH ==============
-def embed_texts(batch: List[str]) -> List[List[float]]:
-    """Tạo dense vectors từ OpenAI"""
-    resp = oa.embeddings.create(model=EMBED_MODEL, input=batch)
-    return [d.embedding for d in resp.data]
-
-def embed_sparse(batch: List[str]) -> List[Dict]:
+def embed_texts_bge_m3(batch: List[str]) -> tuple[List[List[float]], List[Dict]]:
     """
-    Tạo sparse vectors từ fastembed.
-    Trả về list of dicts với format: {"indices": [...], "values": [...]}
+    Tạo cả dense và sparse vectors từ BGE-M3.
+    Trả về:
+        - dense_vectors: List[List[float]] - dense embeddings (1024 dim)
+        - sparse_vectors: List[Dict] - sparse embeddings với format {"indices": [...], "values": [...]}
     """
-    sparse_vecs = list(sparse_model.embed(batch))
-    result = []
-    for vec in sparse_vecs:
-        result.append({
-            "indices": vec.indices.tolist(),
-            "values": vec.values.tolist()
+    # Truncate text nếu quá dài (BGE-M3 max_length = 8192 tokens ~ 6000 chars)
+    truncated_batch = []
+    for text in batch:
+        if len(text) > 5000:  # An toàn hơn, giới hạn 5000 chars
+            truncated_batch.append(text[:5000])
+        else:
+            truncated_batch.append(text)
+    
+    # BGE-M3 encode với cả dense và sparse
+    embeddings = bge_m3_model.encode(
+        truncated_batch, 
+        return_dense=True, 
+        return_sparse=True,
+        return_colbert_vecs=False,  # Không cần colbert cho use case này
+        max_length=8192  # BGE-M3 max sequence length
+    )
+    
+    dense_vectors = embeddings['dense_vecs'].tolist()
+    
+    # Xử lý sparse vectors
+    sparse_vectors = []
+    lexical_weights = embeddings['lexical_weights']
+    
+    for weights in lexical_weights:
+        # weights là dict với token_id -> weight
+        indices = list(weights.keys())
+        values = list(weights.values())
+        sparse_vectors.append({
+            "indices": [int(idx) for idx in indices],
+            "values": [float(val) for val in values]
         })
+    
+    return dense_vectors, sparse_vectors
+
+
+def extract_header(text: str) -> str:
+    """
+    Trích xuất header (heading) từ đầu chunk.
+    Tìm các dòng bắt đầu bằng # hoặc ##
+    """
+    lines = text.strip().split('\n')
+    headers = []
+    for line in lines[:5]:  # Chỉ kiểm tra 5 dòng đầu
+        line = line.strip()
+        if line.startswith('#'):
+            headers.append(line)
+        elif headers:  # Đã có header rồi, dừng lại
+            break
+    return '\n'.join(headers) if headers else ""
+
+
+def split_large_chunk(chunk: Dict, max_chars: int = MAX_CHUNK_CHARS) -> List[Dict]:
+    """
+    Tách chunk lớn thành các chunks nhỏ hơn, giữ header gốc.
+    """
+    text = chunk["text"]
+    metadata = chunk["metadata"]
+    
+    if len(text) <= max_chars:
+        return [chunk]
+    
+    # Trích xuất header
+    header = extract_header(text)
+    header_len = len(header) + 2 if header else 0  # +2 cho \n\n
+    
+    # Tính max size cho content
+    content_max = max_chars - header_len
+    if content_max < 100:
+        content_max = max_chars  # Fallback nếu header quá dài
+        header = ""
+    
+    # Loại bỏ header khỏi text để tách
+    content = text
+    if header:
+        content = text[len(header):].strip()
+    
+    # Tách content thành các phần
+    result = []
+    i = 0
+    part_idx = 0
+    while i < len(content):
+        end = min(i + content_max, len(content))
+        
+        # Tìm điểm ngắt tốt (cuối câu, xuống dòng)
+        if end < len(content):
+            # Tìm ngược lại để tìm điểm ngắt
+            for sep in ['\n\n', '\n', '. ', ', ', ' ']:
+                pos = content.rfind(sep, i, end)
+                if pos > i + content_max // 2:  # Phải ngắt ở ít nhất 50% chunk
+                    end = pos + len(sep)
+                    break
+        
+        chunk_text = content[i:end].strip()
+        if chunk_text:
+            # Thêm header vào đầu mỗi chunk con
+            if header and part_idx > 0:
+                chunk_text = f"{header}\n\n{chunk_text}"
+            elif header and part_idx == 0:
+                chunk_text = f"{header}\n\n{chunk_text}"
+            
+            new_metadata = metadata.copy()
+            new_metadata["chunk_part"] = part_idx
+            result.append({
+                "text": chunk_text,
+                "metadata": new_metadata
+            })
+            part_idx += 1
+        
+        i = end
+    
+    return result if result else [chunk]
+
+
+def merge_small_chunks(chunks: List[Dict], min_chars: int = MIN_CHUNK_CHARS) -> List[Dict]:
+    """
+    Merge các chunks nhỏ (< min_chars) vào chunk tiếp theo.
+    """
+    if not chunks:
+        return chunks
+    
+    result = []
+    pending_text = ""
+    pending_metadata = None
+    
+    for chunk in chunks:
+        text = chunk["text"]
+        metadata = chunk["metadata"]
+        
+        if pending_text:
+            # Nối pending vào chunk hiện tại
+            text = pending_text + "\n\n" + text
+            metadata = pending_metadata  # Giữ metadata của chunk đầu tiên
+            pending_text = ""
+            pending_metadata = None
+        
+        if len(text) < min_chars:
+            # Chunk quá nhỏ, lưu lại để merge với chunk sau
+            pending_text = text
+            pending_metadata = metadata
+        else:
+            result.append({
+                "text": text,
+                "metadata": metadata
+            })
+    
+    # Xử lý pending cuối cùng
+    if pending_text:
+        if result:
+            # Nối vào chunk cuối
+            result[-1]["text"] += "\n\n" + pending_text
+        else:
+            # Không có chunk nào, thêm pending vào
+            result.append({
+                "text": pending_text,
+                "metadata": pending_metadata
+            })
+    
+    return result
+
+
+def process_chunks_for_bge_m3(chunks: List[Dict]) -> List[Dict]:
+    """
+    Xử lý chunks cho BGE-M3:
+    1. Merge chunks < 70 ký tự vào chunk tiếp theo
+    2. Split chunks > 1024 ký tự, giữ header
+    """
+    # Bước 1: Merge small chunks
+    merged = merge_small_chunks(chunks, MIN_CHUNK_CHARS)
+    
+    # Bước 2: Split large chunks
+    result = []
+    for chunk in merged:
+        split_chunks = split_large_chunk(chunk, MAX_CHUNK_CHARS)
+        result.extend(split_chunks)
+    
     return result
 
 def ensure_collection(dense_dim: int):
     """
     Tạo collection với cả dense và sparse vectors.
-    - Dense vector: "dense" (OpenAI embedding)
-    - Sparse vector: "sparse" (BM25 hoặc SPLADE)
+    - Dense vector: "dense" (BGE-M3 dense embedding, 1024 dim)
+    - Sparse vector: "sparse" (BGE-M3 lexical weights)
     """
     names = [c.name for c in qdrant.get_collections().collections]
     if COLLECTION not in names:
@@ -295,44 +461,93 @@ def index_one_file(path: str, skip_db: bool = False):
         print(f"⚠️  No text found in {path}")
         return 0
 
+    # Xử lý chunks cho BGE-M3: merge small, split large
+    print(f"📊 Processing {len(chunks)} raw chunks...")
+    chunks = process_chunks_for_bge_m3(chunks)
+    print(f"📊 After processing: {len(chunks)} chunks (merged small, split large)")
+
+    # Lưu chunks cuối cùng vào file để debug
+    output_dir = "output"
+    os.makedirs(output_dir, exist_ok=True)
+    file_name = os.path.splitext(os.path.basename(path))[0]
+    output_file = f"{output_dir}/{file_name}_final_chunks.md"
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(f"# File: {os.path.basename(path)}\n")
+        f.write(f"# Total Chunks: {len(chunks)}\n\n")
+        for idx, chunk in enumerate(chunks, 1):
+            f.write(f"# Chunk {idx}\n")
+            f.write(chunk['text'])
+            f.write("\n\n" + "="*80 + "\n\n")
+    print(f"💾 Saved {len(chunks)} final chunks to {output_file}")
+
     texts = [c["text"] for c in chunks]
     
-    # Tạo dense vectors (OpenAI embeddings)
+    # Tạo cả dense và sparse vectors từ BGE-M3 trong một lần
+    print(f"🔄 Creating embeddings for {len(texts)} chunks...")
     all_dense_vecs: List[List[float]] = []
-    for i in range(0, len(texts), BATCH_EMB):
-        batch = texts[i:i + BATCH_EMB]
-        all_dense_vecs.extend(embed_texts(batch))
-
-    # Tạo sparse vectors (BM25/SPLADE)
     all_sparse_vecs: List[Dict] = []
-    for i in range(0, len(texts), BATCH_EMB):
-        batch = texts[i:i + BATCH_EMB]
-        all_sparse_vecs.extend(embed_sparse(batch))
+    
+    try:
+        total_batches = (len(texts) + BATCH_EMB - 1) // BATCH_EMB
+        import time
+        for batch_idx, i in enumerate(range(0, len(texts), BATCH_EMB), 1):
+            batch = texts[i:i + BATCH_EMB]
+            start_time = time.time()
+            print(f"  ⏳ Batch {batch_idx}/{total_batches} ({len(batch)} chunks)...", end=" ", flush=True)
+            dense_batch, sparse_batch = embed_texts_bge_m3(batch)
+            all_dense_vecs.extend(dense_batch)
+            all_sparse_vecs.extend(sparse_batch)
+            elapsed = time.time() - start_time
+            print(f"✅ Done in {elapsed:.1f}s")
+        print(f"✅ Created embeddings for {len(all_dense_vecs)} chunks")
+    except Exception as e:
+        print(f"❌ Error creating embeddings: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0
 
     ensure_collection(dense_dim=len(all_dense_vecs[0]))
 
+    print(f"🔄 Creating {len(chunks)} points for Qdrant...")
     points: List[PointStruct] = []
-    for i, (dense_vec, sparse_vec, ch) in enumerate(zip(all_dense_vecs, all_sparse_vecs, chunks)):
-        pid = int(hashlib.md5(f"{path}-{i}".encode()).hexdigest()[:12], 16)
-        payload = ch["metadata"] | {"source_text": ch["text"]}
-        
-        # Tạo point với cả dense và sparse vectors
-        points.append(PointStruct(
-            id=pid, 
-            vector={
-                "dense": dense_vec,
-                "sparse": sparse_vec
-            },
-            payload=payload
-        ))
+    try:
+        for i, (dense_vec, sparse_vec, ch) in enumerate(zip(all_dense_vecs, all_sparse_vecs, chunks)):
+            pid = int(hashlib.md5(f"{path}-{i}".encode()).hexdigest()[:12], 16)
+            payload = ch["metadata"] | {"source_text": ch["text"]}
+            
+            # Tạo point với cả dense và sparse vectors
+            points.append(PointStruct(
+                id=pid, 
+                vector={
+                    "dense": dense_vec,
+                    "sparse": sparse_vec
+                },
+                payload=payload
+            ))
+        print(f"✅ Created {len(points)} points")
+    except Exception as e:
+        print(f"❌ Error creating points: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0
 
-    upsert_points(points)
-    rel = os.path.relpath(path, DATA_ROOT) if os.path.isdir(DATA_ROOT) else path
-    print(f"✅ Indexed {len(points)} chunks from {rel} (dense + sparse vectors)")
+    try:
+        print(f"🔄 Upserting {len(points)} points to Qdrant...")
+        upsert_points(points)
+        rel = os.path.relpath(path, DATA_ROOT) if os.path.isdir(DATA_ROOT) else path
+        print(f"✅ Indexed {len(points)} chunks from {rel} (BGE-M3 dense + sparse vectors)")
+    except Exception as e:
+        print(f"❌ Error upserting to Qdrant: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0
     
     # Lưu thông tin vào database (trừ khi skip_db=True)
     if not skip_db:
-        save_to_database(path, meta, len(points))
+        try:
+            save_to_database(path, meta, len(points))
+        except Exception as e:
+            print(f"⚠️  Warning: Could not save to database: {e}")
     
     return len(points)
 

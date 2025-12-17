@@ -3,10 +3,8 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Prefetch, QueryRequest
 from openai import OpenAI
 import os
-from openai import OpenAI
-import os
 from dotenv import load_dotenv
-from fastembed import SparseTextEmbedding
+from FlagEmbedding import BGEM3FlagModel
 import json
 load_dotenv()
 
@@ -17,30 +15,40 @@ oa = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
-EMBED_MODEL = os.getenv("EMBED_MODEL", "text-embedding-3-large")
-SPARSE_MODEL = os.getenv("SPARSE_MODEL", "Qdrant/bm25")
+BGE_M3_MODEL = os.getenv("BGE_M3_MODEL", "BAAI/bge-m3")
 GEN_MODEL   = os.getenv("GEN_MODEL", "gpt-4o-mini")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "vertiv_docs1")
 
 client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 collections = client.get_collections()
 
-oa = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-# Khởi tạo sparse embedding model
-sparse_model = SparseTextEmbedding(model_name=SPARSE_MODEL)
+# Khởi tạo BGE-M3 model
+print("🔄 Loading BGE-M3 model for query...")
+bge_m3_model = BGEM3FlagModel(BGE_M3_MODEL, use_fp16=True)
+print("✅ BGE-M3 model loaded successfully!")
 
 def _embed(text: str):
-    """Tạo dense vector từ OpenAI"""
-    e = oa.embeddings.create(model=EMBED_MODEL, input=[text])
-    return e.data[0].embedding
+    """Tạo dense vector từ BGE-M3"""
+    embeddings = bge_m3_model.encode(
+        [text], 
+        return_dense=True, 
+        return_sparse=False,
+        return_colbert_vecs=False
+    )
+    return embeddings['dense_vecs'][0].tolist()
 
 def _embed_sparse(text: str):
-    """Tạo sparse vector từ fastembed"""
-    sparse_vec = list(sparse_model.embed([text]))[0]
+    """Tạo sparse vector từ BGE-M3"""
+    embeddings = bge_m3_model.encode(
+        [text], 
+        return_dense=False, 
+        return_sparse=True,
+        return_colbert_vecs=False
+    )
+    weights = embeddings['lexical_weights'][0]
     return {
-        "indices": sparse_vec.indices.tolist(),
-        "values": sparse_vec.values.tolist()
+        "indices": [int(idx) for idx in weights.keys()],
+        "values": [float(val) for val in weights.values()]
     }
 
 def _llm_rerank(query: str, hits: list, top_k: int = 5):
@@ -127,7 +135,7 @@ def answer(query: str, file_names: list[str] | None = None):
     if route_result["tool"] in ["small_talk", "catalog"]:
         response = route_result["response"]
         sources = route_result.get("sources", [])
-        return response, sources
+        return response, sources, []  # Không có chunks cho small talk
     
     # ===== BƯỚC 2: RAG - tìm kiếm trong Qdrant =====
     return _rag_answer(query, file_names)
@@ -188,6 +196,8 @@ def _rag_answer(query: str, file_names: list[str] | None = None):
     # 4) Gom ngữ cảnh & nguồn từ kết quả đã rerank
     contexts = []
     sources = []  # list[str] để hiển thị
+    chunks_data = []  # Lưu thông tin chunks để trả về frontend
+    
     for h in reranked_hits:
         p = h.payload or {}
         meta = p.get("metadata", {})  # nếu lúc upsert bạn gộp metadata vào payload
@@ -197,12 +207,22 @@ def _rag_answer(query: str, file_names: list[str] | None = None):
         page_str = ""
         if isinstance(pages, list) and pages:
             page_str = f" (trang {pages[0]})"
-        contexts.append(p.get("source_text", ""))  # phần text gốc để làm RAG
+        
+        source_text = p.get("source_text", "")
+        contexts.append(source_text)  # phần text gốc để làm RAG
         sources.append(f"- **{src}**{page_str}")
+        
+        # Thêm thông tin chunk để trả về frontend
+        chunks_data.append({
+            "text": source_text,
+            "source": src,
+            "page_range": pages if isinstance(pages, list) else [],
+            "score": h.score if hasattr(h, 'score') else None
+        })
 
     # 4) Nếu không có dữ liệu thì báo không có
     if not contexts:
-        return "Không có thông tin.", []
+        return "Không có thông tin.", [], []
 
     # 5) Gọi LLM tổng hợp kèm guideline ngắn + ngữ cảnh
     # Đánh số các đoạn ngữ cảnh
@@ -242,7 +262,7 @@ def _rag_answer(query: str, file_names: list[str] | None = None):
         citations = result.get("citations", [])
         
         if not reply or reply.lower().startswith("không có"):
-            return "Không có thông tin.", []
+            return "Không có thông tin.", [], chunks_data
         
         # Tạo sources từ citations
         final_sources = []
@@ -266,12 +286,12 @@ def _rag_answer(query: str, file_names: list[str] | None = None):
         if not final_sources:
             final_sources = sources[:3]
         
-        return reply, final_sources[:3]
+        return reply, final_sources[:3], chunks_data
     
     except Exception as e:
         print(f"Error parsing LLM response: {e}")
         # Fallback về cách cũ nếu có lỗi
         reply = chat.choices[0].message.content.strip()
         if not reply or reply.lower().startswith("không có"):
-            return "Không có thông tin.", []
-        return reply, sources[:3]
+            return "Không có thông tin.", [], chunks_data
+        return reply, sources[:3], chunks_data

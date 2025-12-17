@@ -101,10 +101,11 @@ class FileResponse(BaseModel):
 # ==================== CHAT ENDPOINT ====================
 @app.post("/chat")
 def chat(req: Ask):
-    reply, sources = answer(req.query, file_names=req.file_names)
+    reply, sources, chunks = answer(req.query, file_names=req.file_names)
     return {
         "answer": reply,
-        "sources": sources
+        "sources": sources,
+        "chunks": chunks
     }
 
 

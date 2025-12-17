@@ -1,0 +1,173 @@
+Collecting FlagEmbedding
+  Using cached FlagEmbedding-1.3.5.tar.gz (163 kB)
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Collecting torch>=1.6.0 (from FlagEmbedding)
+  Downloading torch-2.9.1-cp312-cp312-win_amd64.whl.metadata (30 kB)
+Collecting transformers>=4.44.2 (from FlagEmbedding)
+  Using cached transformers-4.57.3-py3-none-any.whl.metadata (43 kB)
+Collecting datasets>=2.19.0 (from FlagEmbedding)
+  Using cached datasets-4.4.1-py3-none-any.whl.metadata (19 kB)
+Collecting accelerate>=0.20.1 (from FlagEmbedding)
+  Using cached accelerate-1.12.0-py3-none-any.whl.metadata (19 kB)
+Collecting sentence_transformers (from FlagEmbedding)
+  Using cached sentence_transformers-5.2.0-py3-none-any.whl.metadata (16 kB)
+Collecting peft (from FlagEmbedding)
+  Using cached peft-0.18.0-py3-none-any.whl.metadata (14 kB)
+Collecting ir-datasets (from FlagEmbedding)
+  Using cached ir_datasets-0.5.11-py3-none-any.whl.metadata (12 kB)
+Collecting sentencepiece (from FlagEmbedding)
+  Downloading sentencepiece-0.2.1-cp312-cp312-win_amd64.whl.metadata (10 kB)
+Requirement already satisfied: protobuf in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from FlagEmbedding) (6.32.1)
+Requirement already satisfied: numpy>=1.17 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from accelerate>=0.20.1->FlagEmbedding) (2.3.3)
+Requirement already satisfied: packaging>=20.0 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from accelerate>=0.20.1->FlagEmbedding) (25.0)
+Collecting psutil (from accelerate>=0.20.1->FlagEmbedding)
+  Using cached psutil-7.1.3-cp37-abi3-win_amd64.whl.metadata (23 kB)
+Requirement already satisfied: pyyaml in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from accelerate>=0.20.1->FlagEmbedding) (6.0.3)
+Requirement already satisfied: huggingface_hub>=0.21.0 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from accelerate>=0.20.1->FlagEmbedding) (0.35.3)
+Collecting safetensors>=0.4.3 (from accelerate>=0.20.1->FlagEmbedding)
+  Using cached safetensors-0.7.0-cp38-abi3-win_amd64.whl.metadata (4.2 kB)
+Requirement already satisfied: filelock in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from datasets>=2.19.0->FlagEmbedding) (3.19.1)
+Collecting pyarrow>=21.0.0 (from datasets>=2.19.0->FlagEmbedding)
+  Downloading pyarrow-22.0.0-cp312-cp312-win_amd64.whl.metadata (3.3 kB)
+Collecting dill<0.4.1,>=0.3.0 (from datasets>=2.19.0->FlagEmbedding)
+  Using cached dill-0.4.0-py3-none-any.whl.metadata (10 kB)
+Requirement already satisfied: pandas in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from datasets>=2.19.0->FlagEmbedding) (2.3.3)
+Requirement already satisfied: requests>=2.32.2 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from datasets>=2.19.0->FlagEmbedding) (2.32.5)
+Requirement already satisfied: httpx<1.0.0 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from datasets>=2.19.0->FlagEmbedding) (0.28.1)
+Requirement already satisfied: tqdm>=4.66.3 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from datasets>=2.19.0->FlagEmbedding) (4.67.1)
+Collecting xxhash (from datasets>=2.19.0->FlagEmbedding)
+  Downloading xxhash-3.6.0-cp312-cp312-win_amd64.whl.metadata (13 kB)
+Collecting multiprocess<0.70.19 (from datasets>=2.19.0->FlagEmbedding)
+  Downloading multiprocess-0.70.18-py312-none-any.whl.metadata (7.5 kB)
+Requirement already satisfied: fsspec<=2025.10.0,>=2023.1.0 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from fsspec[http]<=2025.10.0,>=2023.1.0->datasets>=2.19.0->FlagEmbedding) (2025.9.0)
+Requirement already satisfied: typing-extensions>=4.10.0 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from torch>=1.6.0->FlagEmbedding) (4.15.0)
+Requirement already satisfied: sympy>=1.13.3 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from torch>=1.6.0->FlagEmbedding) (1.14.0)
+Requirement already satisfied: networkx>=2.5.1 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from torch>=1.6.0->FlagEmbedding) (3.5)
+Requirement already satisfied: jinja2 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from torch>=1.6.0->FlagEmbedding) (3.1.6)
+Collecting setuptools (from torch>=1.6.0->FlagEmbedding)
+  Using cached setuptools-80.9.0-py3-none-any.whl.metadata (6.6 kB)
+Requirement already satisfied: regex!=2019.12.17 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from transformers>=4.44.2->FlagEmbedding) (2025.10.23)
+Requirement already satisfied: tokenizers<=0.23.0,>=0.22.0 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from transformers>=4.44.2->FlagEmbedding) (0.22.1)
+Collecting beautifulsoup4>=4.4.1 (from ir-datasets->FlagEmbedding)
+  Downloading beautifulsoup4-4.14.3-py3-none-any.whl.metadata (3.8 kB)
+Collecting inscriptis>=2.2.0 (from ir-datasets->FlagEmbedding)
+  Using cached inscriptis-2.7.0-py3-none-any.whl.metadata (27 kB)
+Collecting lxml>=4.5.2 (from ir-datasets->FlagEmbedding)
+  Downloading lxml-6.0.2-cp312-cp312-win_amd64.whl.metadata (3.7 kB)
+Collecting trec-car-tools>=2.5.4 (from ir-datasets->FlagEmbedding)
+  Using cached trec_car_tools-2.6-py3-none-any.whl.metadata (640 bytes)
+Collecting lz4>=3.1.10 (from ir-datasets->FlagEmbedding)
+  Downloading lz4-4.4.5-cp312-cp312-win_amd64.whl.metadata (3.9 kB)
+Collecting warc3-wet>=0.2.3 (from ir-datasets->FlagEmbedding)
+  Using cached warc3_wet-0.2.5-py3-none-any.whl.metadata (2.2 kB)
+Collecting warc3-wet-clueweb09>=0.2.5 (from ir-datasets->FlagEmbedding)
+  Using cached warc3-wet-clueweb09-0.2.5.tar.gz (17 kB)
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Collecting zlib-state>=0.1.3 (from ir-datasets->FlagEmbedding)
+  Downloading zlib_state-0.1.10-cp312-cp312-win_amd64.whl.metadata (3.6 kB)
+Collecting ijson>=3.1.3 (from ir-datasets->FlagEmbedding)
+  Downloading ijson-3.4.0.post0-cp312-cp312-win_amd64.whl.metadata (24 kB)
+Collecting unlzw3>=0.2.1 (from ir-datasets->FlagEmbedding)
+  Using cached unlzw3-0.2.3-py3-none-any.whl.metadata (2.3 kB)
+Collecting scikit-learn (from sentence_transformers->FlagEmbedding)
+  Downloading scikit_learn-1.8.0-cp312-cp312-win_amd64.whl.metadata (11 kB)
+Collecting scipy (from sentence_transformers->FlagEmbedding)
+  Downloading scipy-1.16.3-cp312-cp312-win_amd64.whl.metadata (60 kB)
+Collecting soupsieve>=1.6.1 (from beautifulsoup4>=4.4.1->ir-datasets->FlagEmbedding)
+  Using cached soupsieve-2.8-py3-none-any.whl.metadata (4.6 kB)
+Requirement already satisfied: aiohttp!=4.0.0a0,!=4.0.0a1 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from fsspec[http]<=2025.10.0,>=2023.1.0->datasets>=2.19.0->FlagEmbedding) (3.13.1)
+Requirement already satisfied: anyio in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from httpx<1.0.0->datasets>=2.19.0->FlagEmbedding) (4.11.0)
+Requirement already satisfied: certifi in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from httpx<1.0.0->datasets>=2.19.0->FlagEmbedding) (2025.10.5)
+Requirement already satisfied: httpcore==1.* in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from httpx<1.0.0->datasets>=2.19.0->FlagEmbedding) (1.0.9)
+Requirement already satisfied: idna in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from httpx<1.0.0->datasets>=2.19.0->FlagEmbedding) (3.10)
+Requirement already satisfied: h11>=0.16 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from httpcore==1.*->httpx<1.0.0->datasets>=2.19.0->FlagEmbedding) (0.16.0)
+Collecting lxml>=4.5.2 (from ir-datasets->FlagEmbedding)
+  Downloading lxml-5.4.0-cp312-cp312-win_amd64.whl.metadata (3.6 kB)
+Requirement already satisfied: charset_normalizer<4,>=2 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from requests>=2.32.2->datasets>=2.19.0->FlagEmbedding) (3.4.3)
+Requirement already satisfied: urllib3<3,>=1.21.1 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from requests>=2.32.2->datasets>=2.19.0->FlagEmbedding) (2.5.0)
+Requirement already satisfied: mpmath<1.4,>=1.1.0 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from sympy>=1.13.3->torch>=1.6.0->FlagEmbedding) (1.3.0)
+Requirement already satisfied: colorama in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from tqdm>=4.66.3->datasets>=2.19.0->FlagEmbedding) (0.4.6)
+Collecting cbor>=1.0.0 (from trec-car-tools>=2.5.4->ir-datasets->FlagEmbedding)
+  Using cached cbor-1.0.0.tar.gz (20 kB)
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: MarkupSafe>=2.0 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from jinja2->torch>=1.6.0->FlagEmbedding) (3.0.3)
+Requirement already satisfied: python-dateutil>=2.8.2 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from pandas->datasets>=2.19.0->FlagEmbedding) (2.9.0.post0)
+Requirement already satisfied: pytz>=2020.1 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from pandas->datasets>=2.19.0->FlagEmbedding) (2025.2)
+Requirement already satisfied: tzdata>=2022.7 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from pandas->datasets>=2.19.0->FlagEmbedding) (2025.2)
+Requirement already satisfied: joblib>=1.3.0 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from scikit-learn->sentence_transformers->FlagEmbedding) (1.5.2)
+Collecting threadpoolctl>=3.2.0 (from scikit-learn->sentence_transformers->FlagEmbedding)
+  Using cached threadpoolctl-3.6.0-py3-none-any.whl.metadata (13 kB)
+Requirement already satisfied: aiohappyeyeballs>=2.5.0 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.10.0,>=2023.1.0->datasets>=2.19.0->FlagEmbedding) (2.6.1)
+Requirement already satisfied: aiosignal>=1.4.0 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.10.0,>=2023.1.0->datasets>=2.19.0->FlagEmbedding) (1.4.0)
+Requirement already satisfied: attrs>=17.3.0 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.10.0,>=2023.1.0->datasets>=2.19.0->FlagEmbedding) (25.4.0)
+Requirement already satisfied: frozenlist>=1.1.1 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.10.0,>=2023.1.0->datasets>=2.19.0->FlagEmbedding) (1.8.0)
+Requirement already satisfied: multidict<7.0,>=4.5 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.10.0,>=2023.1.0->datasets>=2.19.0->FlagEmbedding) (6.7.0)
+Requirement already satisfied: propcache>=0.2.0 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.10.0,>=2023.1.0->datasets>=2.19.0->FlagEmbedding) (0.4.1)
+Requirement already satisfied: yarl<2.0,>=1.17.0 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.10.0,>=2023.1.0->datasets>=2.19.0->FlagEmbedding) (1.22.0)
+Requirement already satisfied: six>=1.5 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from python-dateutil>=2.8.2->pandas->datasets>=2.19.0->FlagEmbedding) (1.17.0)
+Requirement already satisfied: sniffio>=1.1 in d:\project\project1_anhnhat\vertiv_chatbot_r1\venv\lib\site-packages (from anyio->httpx<1.0.0->datasets>=2.19.0->FlagEmbedding) (1.3.1)
+Using cached accelerate-1.12.0-py3-none-any.whl (380 kB)
+Using cached datasets-4.4.1-py3-none-any.whl (511 kB)
+Downloading torch-2.9.1-cp312-cp312-win_amd64.whl (110.9 MB)
+   ---------------------------------------- 110.9/110.9 MB 6.4 MB/s eta 0:00:00
+Using cached transformers-4.57.3-py3-none-any.whl (12.0 MB)
+Using cached ir_datasets-0.5.11-py3-none-any.whl (866 kB)
+Using cached peft-0.18.0-py3-none-any.whl (556 kB)
+Using cached sentence_transformers-5.2.0-py3-none-any.whl (493 kB)
+Downloading sentencepiece-0.2.1-cp312-cp312-win_amd64.whl (1.1 MB)
+   ---------------------------------------- 1.1/1.1 MB 7.3 MB/s eta 0:00:00
+Downloading beautifulsoup4-4.14.3-py3-none-any.whl (107 kB)
+Using cached dill-0.4.0-py3-none-any.whl (119 kB)
+Downloading ijson-3.4.0.post0-cp312-cp312-win_amd64.whl (54 kB)
+Using cached inscriptis-2.7.0-py3-none-any.whl (45 kB)
+Downloading lxml-5.4.0-cp312-cp312-win_amd64.whl (3.8 MB)
+   ---------------------------------------- 3.8/3.8 MB 7.3 MB/s eta 0:00:00
+Downloading lz4-4.4.5-cp312-cp312-win_amd64.whl (99 kB)
+Downloading multiprocess-0.70.18-py312-none-any.whl (150 kB)
+Downloading pyarrow-22.0.0-cp312-cp312-win_amd64.whl (28.0 MB)
+   ---------------------------------------- 28.0/28.0 MB 6.1 MB/s eta 0:00:00
+Using cached safetensors-0.7.0-cp38-abi3-win_amd64.whl (341 kB)
+Using cached trec_car_tools-2.6-py3-none-any.whl (8.4 kB)
+Using cached unlzw3-0.2.3-py3-none-any.whl (6.7 kB)
+Using cached warc3_wet-0.2.5-py3-none-any.whl (18 kB)
+Downloading zlib_state-0.1.10-cp312-cp312-win_amd64.whl (12 kB)
+Using cached psutil-7.1.3-cp37-abi3-win_amd64.whl (247 kB)
+Downloading scikit_learn-1.8.0-cp312-cp312-win_amd64.whl (8.0 MB)
+   ---------------------------------------- 8.0/8.0 MB 6.5 MB/s eta 0:00:00
+Downloading scipy-1.16.3-cp312-cp312-win_amd64.whl (38.6 MB)
+   ---------------------------------------- 38.6/38.6 MB 6.1 MB/s eta 0:00:00
+Using cached setuptools-80.9.0-py3-none-any.whl (1.2 MB)
+Downloading xxhash-3.6.0-cp312-cp312-win_amd64.whl (31 kB)
+Using cached soupsieve-2.8-py3-none-any.whl (36 kB)
+Using cached threadpoolctl-3.6.0-py3-none-any.whl (18 kB)
+Building wheels for collected packages: FlagEmbedding, warc3-wet-clueweb09, cbor
+  Building wheel for FlagEmbedding (pyproject.toml): started
+  Building wheel for FlagEmbedding (pyproject.toml): finished with status 'done'
+  Created wheel for FlagEmbedding: filename=flagembedding-1.3.5-py3-none-any.whl size=233858 sha256=fd881649cf064dc3c78ab29f67662d026430507fe8338ab662952440750583f8
+  Stored in directory: c:\users\admin\appdata\local\pip\cache\wheels\b2\1f\f6\78f862bb80cb959cc9960b7c4e2d1f702b1bc0e79d19b5f124
+  Building wheel for warc3-wet-clueweb09 (pyproject.toml): started
+  Building wheel for warc3-wet-clueweb09 (pyproject.toml): finished with status 'done'
+  Created wheel for warc3-wet-clueweb09: filename=warc3_wet_clueweb09-0.2.5-py3-none-any.whl size=19021 sha256=bd91e5db09c493e58ec10e504e94db37d73623801bb37b923c19048b7d44f3e7
+  Stored in directory: c:\users\admin\appdata\local\pip\cache\wheels\f6\85\c2\9f0f621def52a1d5db7d29984f81e45f9fb6dfeb1a4eb6e31c
+  Building wheel for cbor (pyproject.toml): started
+  Building wheel for cbor (pyproject.toml): finished with status 'done'
+  Created wheel for cbor: filename=cbor-1.0.0-py3-none-any.whl size=10086 sha256=396a116ff7f87c465d5154cc886a972c3e8b9771d234c84e22d10a3b1456d33c
+  Stored in directory: c:\users\admin\appdata\local\pip\cache\wheels\44\3e\21\a739cbcc331a1ab45c326d6edbdac6118de4402f6076e30ff1
+Successfully built FlagEmbedding warc3-wet-clueweb09 cbor
+Installing collected packages: warc3-wet-clueweb09, warc3-wet, cbor, zlib-state, xxhash, unlzw3, trec-car-tools, threadpoolctl, soupsieve, setuptools, sentencepiece, scipy, safetensors, pyarrow, psutil, lz4, lxml, ijson, dill, torch, scikit-learn, multiprocess, inscriptis, beautifulsoup4, ir-datasets, accelerate, transformers, datasets, sentence_transformers, peft, FlagEmbedding
+Successfully installed FlagEmbedding-1.3.5 accelerate-1.12.0 beautifulsoup4-4.14.3 cbor-1.0.0 datasets-4.4.1 dill-0.4.0 ijson-3.4.0.post0 inscriptis-2.7.0 ir-datasets-0.5.11 lxml-5.4.0 lz4-4.4.5 multiprocess-0.70.18 peft-0.18.0 psutil-7.1.3 pyarrow-22.0.0 safetensors-0.7.0 scikit-learn-1.8.0 scipy-1.16.3 sentence_transformers-5.2.0 sentencepiece-0.2.1 setuptools-80.9.0 soupsieve-2.8 threadpoolctl-3.6.0 torch-2.9.1 transformers-4.57.3 trec-car-tools-2.6 unlzw3-0.2.3 warc3-wet-0.2.5 warc3-wet-clueweb09-0.2.5 xxhash-3.6.0 zlib-state-0.1.10
