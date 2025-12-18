@@ -36,14 +36,14 @@ COLLECTION     = os.getenv("QDRANT_COLLECTION", "vertiv_docs1")  # có thể đ�
 DATA_ROOT      = "data"   # sẽ quét: data/<product_line>/<product_name>/*
 os.environ["LLAMA_CLOUD_API_KEY"] = os.getenv("LLAMA_API_KEY")
 
-# tham số chunk - BGE-M3 max sequence length là 8192, optimal là 1024
-CHUNK_SIZE     = 1024
+# tham số chunk - BGE-M3 max sequence length là 8192 tokens
+CHUNK_SIZE     = 4096  # Chunk size tối ưu
 CHUNK_OVERLAP  = 150
 BATCH_EMB      = 2    # Giảm batch size do model nặng hơn
 
-# Giới hạn chunk size cho BGE-M3
-MIN_CHUNK_CHARS = 70   # Chunks nhỏ hơn sẽ được merge
-MAX_CHUNK_CHARS = 1024  # Chunks lớn hơn sẽ được split
+# Giới hạn chunk size cho BGE-M3 (8192 tokens ~ 6000-7000 chars)
+MIN_CHUNK_CHARS = 70    # Chunks nhỏ hơn sẽ được merge
+MAX_CHUNK_CHARS = 7000  # Chunks lớn hơn sẽ được split (giới hạn BGE-M3)
 
 # Khởi tạo BGE-M3 model (hỗ trợ cả dense, sparse)
 print("🔄 Loading BGE-M3 model...")
@@ -178,48 +178,93 @@ def split_large_chunk(chunk: Dict, max_chars: int = MAX_CHUNK_CHARS) -> List[Dic
     return result if result else [chunk]
 
 
-def merge_small_chunks(chunks: List[Dict], min_chars: int = MIN_CHUNK_CHARS) -> List[Dict]:
+def merge_small_chunks(chunks: List[Dict], min_chars: int = MIN_CHUNK_CHARS, max_chars: int = MAX_CHUNK_CHARS) -> List[Dict]:
     """
     Merge các chunks nhỏ (< min_chars) vào chunk tiếp theo.
+    Xử lý các trường hợp:
+    - Chunk < min_chars: merge với chunk tiếp
+    - Sau khi merge vẫn < min_chars: tiếp tục merge
+    - Sau khi merge > max_chars: giữ chunk hiện tại, bắt đầu chunk mới
     """
     if not chunks:
         return chunks
     
     result = []
-    pending_text = ""
-    pending_metadata = None
+    accumulated_text = ""
+    accumulated_metadata = None
     
-    for chunk in chunks:
+    for i, chunk in enumerate(chunks):
         text = chunk["text"]
         metadata = chunk["metadata"]
         
-        if pending_text:
-            # Nối pending vào chunk hiện tại
-            text = pending_text + "\n\n" + text
-            metadata = pending_metadata  # Giữ metadata của chunk đầu tiên
-            pending_text = ""
-            pending_metadata = None
+        # Thêm text vào accumulator
+        if accumulated_text:
+            combined = accumulated_text + "\n\n" + text
+        else:
+            combined = text
+            accumulated_metadata = metadata
         
-        if len(text) < min_chars:
-            # Chunk quá nhỏ, lưu lại để merge với chunk sau
-            pending_text = text
-            pending_metadata = metadata
-        else:
+        # Kiểm tra kích thước combined
+        combined_len = len(combined)
+        is_last = (i == len(chunks) - 1)
+        
+        # Quyết định xử lý combined
+        if combined_len >= min_chars and combined_len <= max_chars:
+            # Đủ điều kiện: >= min và <= max
             result.append({
-                "text": text,
-                "metadata": metadata
+                "text": combined,
+                "metadata": accumulated_metadata
             })
-    
-    # Xử lý pending cuối cùng
-    if pending_text:
-        if result:
-            # Nối vào chunk cuối
-            result[-1]["text"] += "\n\n" + pending_text
+            accumulated_text = ""
+            accumulated_metadata = None
+        elif combined_len > max_chars:
+            # Quá lớn: lưu chunk trước đó (nếu có) và bắt đầu mới với chunk hiện tại
+            if accumulated_text and len(accumulated_text) >= min_chars:
+                result.append({
+                    "text": accumulated_text,
+                    "metadata": accumulated_metadata
+                })
+            elif accumulated_text:
+                # accumulated_text < min_chars nhưng không thể merge thêm (vì quá max)
+                # Buộc phải thêm vào result
+                result.append({
+                    "text": accumulated_text,
+                    "metadata": accumulated_metadata
+                })
+            
+            # Bắt đầu mới với chunk hiện tại
+            accumulated_text = text
+            accumulated_metadata = metadata
         else:
-            # Không có chunk nào, thêm pending vào
+            # combined_len < min_chars: tiếp tục accumulate
+            accumulated_text = combined
+            
+            # Nếu là chunk cuối cùng, buộc phải thêm vào
+            if is_last:
+                result.append({
+                    "text": accumulated_text,
+                    "metadata": accumulated_metadata
+                })
+                accumulated_text = ""
+    
+    # Xử lý phần còn lại nếu có
+    if accumulated_text:
+        if result and len(accumulated_text) < min_chars:
+            # Nối vào chunk cuối nếu quá nhỏ
+            last_combined = result[-1]["text"] + "\n\n" + accumulated_text
+            if len(last_combined) <= max_chars:
+                result[-1]["text"] = last_combined
+            else:
+                # Không thể merge vào cuối (quá max), thêm riêng dù nhỏ
+                result.append({
+                    "text": accumulated_text,
+                    "metadata": accumulated_metadata
+                })
+        else:
+            # Thêm vào kết quả
             result.append({
-                "text": pending_text,
-                "metadata": pending_metadata
+                "text": accumulated_text,
+                "metadata": accumulated_metadata
             })
     
     return result
@@ -228,13 +273,13 @@ def merge_small_chunks(chunks: List[Dict], min_chars: int = MIN_CHUNK_CHARS) -> 
 def process_chunks_for_bge_m3(chunks: List[Dict]) -> List[Dict]:
     """
     Xử lý chunks cho BGE-M3:
-    1. Merge chunks < 70 ký tự vào chunk tiếp theo
-    2. Split chunks > 1024 ký tự, giữ header
+    1. Merge chunks < 70 ký tự vào chunk tiếp theo (xử lý cả TH merge vẫn < 70 hoặc > max)
+    2. Split chunks > 8192 ký tự, giữ header
     """
-    # Bước 1: Merge small chunks
-    merged = merge_small_chunks(chunks, MIN_CHUNK_CHARS)
+    # Bước 1: Merge small chunks (xử lý đầy đủ các edge cases)
+    merged = merge_small_chunks(chunks, MIN_CHUNK_CHARS, MAX_CHUNK_CHARS)
     
-    # Bước 2: Split large chunks
+    # Bước 2: Split large chunks (chunks > MAX_CHUNK_CHARS)
     result = []
     for chunk in merged:
         split_chunks = split_large_chunk(chunk, MAX_CHUNK_CHARS)
