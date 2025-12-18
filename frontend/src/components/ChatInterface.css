@@ -98,6 +98,7 @@
 .header-right {
   display: flex;
   align-items: center;
+  gap: 16px;
 }
 
 /* Selection Hint */
@@ -118,8 +119,9 @@
   color: var(--primary-color);
 }
 
-/* Strict Mode Toggle */
-.strict-mode-toggle {
+/* Strict Mode Toggle & Google Fallback Toggle */
+.strict-mode-toggle,
+.google-fallback-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -127,15 +129,28 @@
   user-select: none;
 }
 
-.strict-mode-toggle input[type="checkbox"] {
+.strict-mode-toggle input[type="checkbox"],
+.google-fallback-toggle input[type="checkbox"] {
   width: 16px;
   height: 16px;
   cursor: pointer;
 }
 
-.strict-mode-toggle span {
+.strict-mode-toggle span,
+.google-fallback-toggle span {
   font-size: 14px;
   color: rgba(255, 255, 255, 0.9);
+}
+
+.google-fallback-toggle span {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 4px 10px;
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+
+.google-fallback-toggle:hover span {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 /* Messages */

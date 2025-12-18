@@ -29,4 +29,6 @@ markitdown/
 
 node_modules/
 public/
-hinh_anh_local
+hinh_anh_local/
+temp_uploads/
+docs/

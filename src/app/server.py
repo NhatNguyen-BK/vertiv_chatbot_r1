@@ -38,6 +38,7 @@ def get_db():
 class Ask(BaseModel):
     query: str
     file_names: List[str] | None = None  # None = tìm tất cả, hoặc list file names để filter
+    use_google_fallback: bool = False  # Nếu RAG không có kết quả, tự động search Google
 
 
 class CategoryCreate(BaseModel):
@@ -101,7 +102,11 @@ class FileResponse(BaseModel):
 # ==================== CHAT ENDPOINT ====================
 @app.post("/chat")
 def chat(req: Ask):
-    reply, sources, chunks = answer(req.query, file_names=req.file_names)
+    reply, sources, chunks = answer(
+        req.query, 
+        file_names=req.file_names,
+        use_google_fallback=req.use_google_fallback
+    )
     return {
         "answer": reply,
         "sources": sources,

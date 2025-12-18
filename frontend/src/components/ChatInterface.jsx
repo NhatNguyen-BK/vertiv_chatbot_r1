@@ -15,6 +15,7 @@ function ChatInterface() {
   const [showSidebar, setShowSidebar] = useState(true) // Toggle sidebar on mobile/desktop
 
   const [strictMode, setStrictMode] = useState(false)
+  const [useGoogleFallback, setUseGoogleFallback] = useState(false) // Toggle Google fallback
   const [isLoading, setIsLoading] = useState(false)
   const [showPdfViewer, setShowPdfViewer] = useState(false)
   const [pdfData, setPdfData] = useState({ url: '', searchTexts: [], page: null })
@@ -50,7 +51,8 @@ function ChatInterface() {
 
       const response = await axios.post('/chat', {
         query: userMessage.content,
-        file_names: fileNames
+        file_names: fileNames,
+        use_google_fallback: useGoogleFallback
       })
 
       const { answer, sources, chunks } = response.data
@@ -150,6 +152,14 @@ function ChatInterface() {
                 onChange={(e) => setStrictMode(e.target.checked)}
               />
               <span>Strict mode</span>
+            </label>
+            <label className="checkbox-label google-fallback-toggle">
+              <input
+                type="checkbox"
+                checked={useGoogleFallback}
+                onChange={(e) => setUseGoogleFallback(e.target.checked)}
+              />
+              <span>🔍 Google Fallback</span>
             </label>
           </div>
         </div>

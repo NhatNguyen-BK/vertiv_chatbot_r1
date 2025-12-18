@@ -127,18 +127,160 @@ Chỉ trả về top {top_k} kết quả có điểm cao nhất, sắp xếp gi�
         # Fallback về kết quả gốc nếu có lỗi
         return hits[:top_k]
 
-def answer(query: str, file_names: list[str] | None = None):
+def answer(query: str, file_names: list[str] | None = None, use_google_fallback: bool = False):
     # ===== BƯỚC 1: Routing - kiểm tra loại câu hỏi =====
     route_result = route_query(query)
     
-    # Nếu là small talk hoặc catalog query, trả về ngay
-    if route_result["tool"] in ["small_talk", "catalog"]:
+    # Nếu là small talk, catalog query, hoặc google search (thủ công), trả về ngay
+    if route_result["tool"] in ["small_talk", "catalog", "google_search"]:
         response = route_result["response"]
         sources = route_result.get("sources", [])
-        return response, sources, []  # Không có chunks cho small talk
+        # Với Google search, trả về results nếu có
+        chunks_data = []
+        if route_result["tool"] == "google_search":
+            # Format lại results thành chunks_data để hiển thị trên frontend
+            for result in route_result.get("results", []):
+                chunks_data.append({
+                    "text": result.get("snippet", ""),
+                    "source": result.get("link", ""),
+                    "page_range": [],
+                    "score": None,
+                    "title": result.get("title", "")
+                })
+        return response, sources, chunks_data
     
     # ===== BƯỚC 2: RAG - tìm kiếm trong Qdrant =====
-    return _rag_answer(query, file_names)
+    rag_response, rag_sources, rag_chunks = _rag_answer(query, file_names)
+    
+    # ===== BƯỚC 3: Google Fallback - nếu RAG không có kết quả và toggle bật =====
+    if use_google_fallback and (not rag_response or rag_response.lower().startswith("không có thông tin")):
+        print("🔍 RAG không có kết quả, đang fallback sang Google Search...")
+        return _google_fallback_answer(query)
+    
+    return rag_response, rag_sources, rag_chunks
+
+
+def _google_fallback_answer(query: str):
+    """
+    Tìm kiếm Google và xử lý kết quả giống như RAG:
+    1. Lấy Google search results
+    2. Dùng snippets làm contexts
+    3. Đưa vào LLM để tổng hợp như RAG
+    """
+    from .tools import handle_google_search
+    
+    google_result = handle_google_search(query, num_results=5)
+    
+    # Nếu Google search thất bại
+    if not google_result["response"] or google_result["response"].startswith("❌"):
+        return "Không có thông tin.", [], []
+    
+    # Lấy results để làm contexts
+    results = google_result.get("results", [])
+    if not results:
+        return "Không có thông tin.", [], []
+    
+    # 1) Tạo contexts từ Google snippets và content
+    contexts = []
+    sources = []
+    chunks_data = []
+    
+    for idx, result in enumerate(results, 1):
+        title = result.get("title", "")
+        link = result.get("link", "")
+        snippet = result.get("snippet", "")
+        content = result.get("content", "")  # Nếu có scrape content
+        
+        # Dùng content nếu có, không thì dùng snippet
+        context_text = content if content and not content.startswith("❌") else snippet
+        
+        if context_text:
+            contexts.append(context_text)
+            sources.append(f"- [{title}]({link})")
+            chunks_data.append({
+                "text": context_text,
+                "source": link,
+                "page_range": [],
+                "score": None,
+                "title": title,
+                "from_google": True
+            })
+    
+    if not contexts:
+        return "Không có thông tin.", [], []
+    
+    # 2) Đưa vào LLM để tổng hợp giống như RAG
+    numbered_contexts = []
+    for idx, ctx in enumerate(contexts, 1):
+        numbered_contexts.append(f"[Nguồn {idx}]\n{ctx}")
+    
+    sys = (
+        "Bạn là trợ lý thông minh. Dựa trên thông tin tìm kiếm từ Internet, trả lời câu hỏi một cách chính xác.\n"
+        "Khi trả lời, bạn PHẢI trích dẫn chính xác đoạn văn bản từ nguồn mà bạn sử dụng.\n"
+        "Trả về JSON với format:\n"
+        "{\n"
+        '  "answer": "câu trả lời của bạn",\n'
+        '  "citations": [\n'
+        '    {"quote": "đoạn trích dẫn chính xác", "context_index": 1}\n'
+        '  ]\n'
+        "}\n"
+        "Nếu không có thông tin, trả về answer là 'Không có thông tin.' và citations rỗng."
+    )
+    
+    prompt = (
+        f"[Thông tin từ Internet]\n{chr(10).join(numbered_contexts)}\n\n"
+        f"[Câu hỏi] {query}\n"
+        f"[Yêu cầu] Trả lời ngắn gọn, rõ ràng dựa trên thông tin trên. "
+        f"Trích dẫn chính xác các đoạn văn bản từ nguồn mà bạn sử dụng (giới hạn mỗi quote trong 150 ký tự)."
+    )
+    
+    try:
+        chat = oa.chat.completions.create(
+            model=GEN_MODEL,
+            messages=[
+                {"role": "system", "content": sys},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(chat.choices[0].message.content)
+        reply = result.get("answer", "").strip()
+        citations = result.get("citations", [])
+        
+        if not reply or reply.lower().startswith("không có"):
+            return "Không có thông tin.", [], chunks_data
+        
+        # Tạo sources từ citations
+        final_sources = []
+        for citation in citations:
+            ctx_idx = citation.get("context_index", 1) - 1  # convert to 0-based
+            quote = citation.get("quote", "")
+            
+            if 0 <= ctx_idx < len(results):
+                result_item = results[ctx_idx]
+                title = result_item.get("title", "")
+                link = result_item.get("link", "")
+                
+                final_sources.append(f"- [{title}]({link})\n  > *\"{quote}\"*")
+        
+        # Nếu không có citations, fallback về sources gốc
+        if not final_sources:
+            final_sources = sources[:3]
+        
+        # Thêm note rằng thông tin từ Google
+        reply_with_note = f"{reply}\n\n*ℹ️ Thông tin được tổng hợp từ kết quả tìm kiếm trên Internet*"
+        
+        return reply_with_note, final_sources[:3], chunks_data
+        
+    except Exception as e:
+        print(f"❌ Error processing Google results with LLM: {e}")
+        # Fallback: trả về snippet đầu tiên
+        if contexts:
+            return contexts[0], sources[:1], chunks_data
+        return "Không có thông tin.", [], []
+
 
 def _rag_answer(query: str, file_names: list[str] | None = None):
     # 1) Lấy vector câu hỏi (dense và sparse)
