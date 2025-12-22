@@ -4,7 +4,7 @@ CRUD operations cho các bảng Category, ProductLine, Product, FileVectorStore
 """
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from .models import Category, ProductLine, Product, FileVectorStore
+from .models import Category, ProductLine, Product, FileVectorStore, RetrievalStrategy
 
 
 # ==================== CATEGORY ====================
@@ -199,6 +199,54 @@ def delete_category(db: Session, category_id: str) -> bool:
     category = get_category(db, category_id)
     if category:
         db.delete(category)
+        db.commit()
+        return True
+    return False
+
+
+# ==================== RETRIEVAL STRATEGY ====================
+def create_strategy(db: Session, id: str, name: str, initial_top_k: int = 10, rerank_top_k: int = 5, score_threshold: Optional[float] = None, description: Optional[str] = None) -> RetrievalStrategy:
+    """Tạo strategy cấu hình mới"""
+    strategy = RetrievalStrategy(
+        id=id, 
+        name=name, 
+        initial_top_k=initial_top_k, 
+        rerank_top_k=rerank_top_k, 
+        score_threshold=score_threshold,
+        description=description
+    )
+    db.add(strategy)
+    db.commit()
+    db.refresh(strategy)
+    return strategy
+
+
+def get_strategy(db: Session, strategy_id: str) -> Optional[RetrievalStrategy]:
+    """Lấy strategy theo id"""
+    return db.query(RetrievalStrategy).filter(RetrievalStrategy.id == strategy_id).first()
+
+
+def get_all_strategies(db: Session) -> List[RetrievalStrategy]:
+    """Lấy tất cả strategies"""
+    return db.query(RetrievalStrategy).all()
+
+
+def update_strategy(db: Session, strategy_id: str, **kwargs) -> Optional[RetrievalStrategy]:
+    """Cập nhật strategy"""
+    strategy = get_strategy(db, strategy_id)
+    if strategy:
+        for key, value in kwargs.items():
+            setattr(strategy, key, value)
+        db.commit()
+        db.refresh(strategy)
+    return strategy
+
+
+def delete_strategy(db: Session, strategy_id: str) -> bool:
+    """Xóa strategy"""
+    strategy = get_strategy(db, strategy_id)
+    if strategy:
+        db.delete(strategy)
         db.commit()
         return True
     return False

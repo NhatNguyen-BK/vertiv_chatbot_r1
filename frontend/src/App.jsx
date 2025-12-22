@@ -2,11 +2,12 @@ import { useState } from 'react'
 import ChatInterface from './components/ChatInterface'
 import UploadManager from './components/UploadManager'
 import FileManager from './components/FileManager'
-import { MessageSquare, Upload, FolderOpen } from 'lucide-react'
+import StrategyManager from './components/StrategyManager'
+import { MessageSquare, Upload, FolderOpen, Settings } from 'lucide-react'
 import './App.css'
 
 function App() {
-  const [activeTab, setActiveTab] = useState('chat') // 'chat' | 'upload' | 'files'
+  const [activeTab, setActiveTab] = useState('chat') // 'chat' | 'upload' | 'files' | 'strategies'
 
   return (
     <div className="app">
@@ -32,12 +33,20 @@ function App() {
           <FolderOpen size={20} />
           <span>Quản lý file</span>
         </button>
+        <button
+          className={`tab-button ${activeTab === 'strategies' ? 'active' : ''}`}
+          onClick={() => setActiveTab('strategies')}
+        >
+          <Settings size={20} />
+          <span>Chiến lược</span>
+        </button>
       </div>
 
       <div className="tab-content">
         {activeTab === 'chat' && <ChatInterface />}
         {activeTab === 'upload' && <UploadManager />}
         {activeTab === 'files' && <FileManager />}
+        {activeTab === 'strategies' && <StrategyManager />}
       </div>
     </div>
   )

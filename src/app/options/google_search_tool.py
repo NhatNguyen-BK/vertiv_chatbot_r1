@@ -10,9 +10,14 @@ from google.auth.transport.requests import Request
 from bs4 import BeautifulSoup
 import urllib3
 from typing import List, Dict
+from openai import OpenAI
+import json
 
 # Tắt cảnh báo SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# OpenAI client cho reformulation
+oa = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # --- CẤU HÌNH ---
 SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "D:/Downloads/burnished-rider-480001-e0-fe4bb7f03c4f.json")
@@ -35,6 +40,77 @@ def _get_credentials():
         return None
 
 
+def reformulate_search_query(user_query: str, conversation_history: list[dict] | None = None) -> str:
+    """
+    Sử dụng LLM để chuyển đổi câu hỏi của người dùng thành câu tìm kiếm Google tự nhiên
+    
+    Args:
+        user_query: Câu hỏi gốc của người dùng
+        conversation_history: Lịch sử hội thoại để có context
+    
+    Returns:
+        str: Câu tìm kiếm đã được tối ưu cho Google
+    
+    Examples:
+        "thông số này là bao nhiêu?" -> "thông số kỹ thuật UPS Liebert APM"
+        "nó có mấy cổng?" -> "số lượng cổng kết nối Netsure 210"
+    """
+    try:
+        system_prompt = (
+            "Bạn là chuyên gia tối ưu câu truy vấn Google Search.\n"
+            "Nhiệm vụ: Chuyển đổi câu hỏi của người dùng thành câu tìm kiếm Google hiệu quả.\n\n"
+            "QUY TẮC:\n"
+            "1. Thay thế đại từ (này, nó, đó) bằng tên cụ thể dựa vào context\n"
+            "2. Thêm từ khóa quan trọng để tìm kiếm chính xác hơn\n"
+            "3. Sử dụng ngôn ngữ tự nhiên mà con người thường search\n"
+            "4. Không giữ nguyên câu hỏi mơ hồ hoặc thiếu context\n"
+            "5. Kết quả phải là câu tìm kiếm ngắn gọn (3-10 từ)\n\n"
+            "Trả về JSON: {\"search_query\": \"câu tìm kiếm đã tối ưu\"}"
+        )
+        
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Thêm context từ lịch sử hội thoại (3 tin nhắn gần nhất)
+        context_info = ""
+        if conversation_history and len(conversation_history) > 0:
+            recent = conversation_history[-3:] if len(conversation_history) > 3 else conversation_history
+            context_lines = []
+            for msg in recent:
+                role = "Người dùng" if msg.get("role") == "user" else "Trợ lý"
+                content = msg.get("content", "")[:500]  # Giới hạn độ dài
+                context_lines.append(f"{role}: {content}")
+            context_info = "Context từ lịch sử hội thoại:\n" + "\n".join(context_lines) + "\n\n"
+        
+        user_prompt = (
+            f"{context_info}"
+            f"Câu hỏi gốc: \"{user_query}\"\n\n"
+            f"Hãy chuyển đổi thành câu tìm kiếm Google tối ưu."
+        )
+        
+        messages.append({"role": "user", "content": user_prompt})
+        
+        response = oa.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        reformulated = result.get("search_query", "").strip()
+        
+        if reformulated and len(reformulated) > 5:
+            print(f"🔄 Reformulated query: '{user_query}' -> '{reformulated}'")
+            return reformulated
+        else:
+            print(f"⚠️ Reformulation failed, using original query")
+            return user_query
+            
+    except Exception as e:
+        print(f"❌ Error reformulating query: {e}")
+        return user_query
+
+
 def google_search(query: str, num_results: int = 5, language: str = "vi") -> List[Dict]:
     """
     Tìm kiếm trên Google và trả về danh sách kết quả
@@ -49,6 +125,7 @@ def google_search(query: str, num_results: int = 5, language: str = "vi") -> Lis
     """
     credentials = _get_credentials()
     if not credentials:
+        print("❌ Không lấy được credentials")
         return []
     
     try:
@@ -72,10 +149,17 @@ def google_search(query: str, num_results: int = 5, language: str = "vi") -> Lis
         
         headers = {"Authorization": f"Bearer {access_token}"}
         
+        print(f"📡 Calling Google API with query: '{query}'")
         response = requests.get(url, params=params, headers=headers, timeout=15)
         
         if response.status_code == 200:
-            items = response.json().get("items", [])
+            data = response.json()
+            items = data.get("items", [])
+            print(f"✅ Google API returned {len(items)} results")
+            
+            if not items:
+                print(f"⚠️ No items found. Response keys: {list(data.keys())}")
+            
             results = []
             for item in items:
                 results.append({
@@ -85,7 +169,8 @@ def google_search(query: str, num_results: int = 5, language: str = "vi") -> Lis
                 })
             return results
         else:
-            print(f"❌ Google API error: {response.status_code}")
+            error_detail = response.text[:200] if response.text else "No error details"
+            print(f"❌ Google API error: {response.status_code} - {error_detail}")
             return []
             
     except Exception as e:
@@ -154,11 +239,14 @@ def google_search_with_content(query: str, num_results: int = 3, scrape_content:
     results = google_search(query, num_results)
     
     if not results:
+        print("❌ google_search() returned empty results")
         return {
             "response": "❌ Không tìm thấy kết quả nào trên Google.",
             "sources": [],
             "results": []
         }
+    
+    print(f"📦 Processing {len(results)} search results")
     
     # Format response
     response_parts = [f"🔍 **Tìm thấy {len(results)} kết quả từ Google:**\n"]
@@ -192,11 +280,15 @@ def google_search_with_content(query: str, num_results: int = 3, scrape_content:
     
     response_parts.append("\n\n💡 *Nguồn: Kết quả tìm kiếm từ Google*")
     
-    return {
+    result_dict = {
         "response": "\n".join(response_parts),
         "sources": sources,
         "results": detailed_results
     }
+    
+    print(f"✅ Returning {len(sources)} sources and {len(detailed_results)} detailed results")
+    
+    return result_dict
 
 
 def google_search_simple(query: str, num_results: int = 3) -> str:

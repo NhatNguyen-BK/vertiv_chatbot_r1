@@ -18,8 +18,13 @@ function ChatInterface() {
   const [useGoogleFallback, setUseGoogleFallback] = useState(false) // Toggle Google fallback
   const [isLoading, setIsLoading] = useState(false)
   const [showPdfViewer, setShowPdfViewer] = useState(false)
+
   const [pdfData, setPdfData] = useState({ url: '', searchTexts: [], page: null })
-  
+
+  // Strategy
+  const [strategies, setStrategies] = useState([])
+  const [selectedStrategy, setSelectedStrategy] = useState(null)
+
   // State để quản lý việc hiển thị chunks cho mỗi message
   const [expandedChunks, setExpandedChunks] = useState({})
   const messagesEndRef = useRef(null)
@@ -31,6 +36,25 @@ function ChatInterface() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Fetch strategies
+  useEffect(() => {
+    const fetchStrategies = async () => {
+      try {
+        const res = await axios.get('/strategies')
+        if (Array.isArray(res.data)) {
+          setStrategies(res.data)
+        } else {
+          console.error("Strategies response is not an array:", res.data)
+          setStrategies([])
+        }
+      } catch (err) {
+        console.error("Failed to load strategies", err)
+        setStrategies([])
+      }
+    }
+    fetchStrategies()
+  }, [])
 
   const handleSendMessage = async (e) => {
     e.preventDefault()
@@ -49,10 +73,18 @@ function ChatInterface() {
       // Backend expects list of strings (filenames) or null for all
       const fileNames = selectedFiles.length > 0 ? selectedFiles : null
 
+      // Chuẩn bị conversation history (lấy 10 tin nhắn gần nhất, chỉ role và content)
+      const conversationHistory = messages.slice(-10).map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }))
+
       const response = await axios.post('/chat', {
         query: userMessage.content,
         file_names: fileNames,
-        use_google_fallback: useGoogleFallback
+        use_google_fallback: useGoogleFallback,
+        strategy_id: selectedStrategy,
+        conversation_history: conversationHistory
       })
 
       const { answer, sources, chunks } = response.data
@@ -145,6 +177,18 @@ function ChatInterface() {
             </div>
           </div>
           <div className="header-right">
+            <select
+              className="strategy-select"
+              value={selectedStrategy || ""}
+              onChange={(e) => setSelectedStrategy(e.target.value || null)}
+              title="Chọn chiến lược tìm kiếm"
+            >
+              <option value="">Mặc định</option>
+              {Array.isArray(strategies) && strategies.map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+
             <label className="checkbox-label strict-mode-toggle">
               <input
                 type="checkbox"
@@ -231,7 +275,7 @@ function ChatInterface() {
                       <span>Xem {message.chunks.length} chunks đã sử dụng</span>
                       {expandedChunks[index] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                     </button>
-                    
+
                     {expandedChunks[index] && (
                       <div className="chunks-list">
                         {message.chunks.map((chunk, chunkIdx) => (
@@ -249,8 +293,8 @@ function ChatInterface() {
                               )}
                             </div>
                             <div className="chunk-content">
-                              {chunk.text.length > 500 
-                                ? chunk.text.substring(0, 500) + '...' 
+                              {chunk.text.length > 500
+                                ? chunk.text.substring(0, 500) + '...'
                                 : chunk.text}
                             </div>
                           </div>

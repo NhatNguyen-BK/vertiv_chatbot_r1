@@ -17,7 +17,7 @@ from src.database import crud
 
 # Import Google search tool
 try:
-    from .google_search_tool import google_search_with_content
+    from .google_search_tool import google_search_with_content, reformulate_search_query
     GOOGLE_SEARCH_AVAILABLE = True
 except Exception as e:
     print(f"⚠️  Google search tool not available: {e}")
@@ -204,7 +204,7 @@ def handle_catalog_query(query: str) -> Tuple[str, List[str]]:
     return response, sources
 
 
-def handle_google_search(query: str, num_results: int = 3) -> Dict:
+def handle_google_search(query: str, num_results: int = 3, conversation_history: list[dict] | None = None) -> Dict:
     """Xử lý tìm kiếm Google và trả về kết quả có đường dẫn tham chiếu"""
     if not GOOGLE_SEARCH_AVAILABLE:
         return {
@@ -225,8 +225,11 @@ def handle_google_search(query: str, num_results: int = 3) -> Dict:
         }
     
     try:
-        # Gọi Google search tool với scrape_content=False để nhanh hơn
-        result = google_search_with_content(clean_query, num_results=num_results, scrape_content=False)
+        # Sử dụng LLM để reformulate query thành câu tìm kiếm tự nhiên hơn
+        reformulated_query = reformulate_search_query(clean_query, conversation_history)
+        
+        # Gọi Google search tool với query đã được cải thiện
+        result = google_search_with_content(reformulated_query, num_results=num_results, scrape_content=False)
         return result
     except Exception as e:
         print(f"❌ Lỗi khi search Google: {e}")
@@ -237,7 +240,7 @@ def handle_google_search(query: str, num_results: int = 3) -> Dict:
         }
 
 
-def route_query(query: str) -> Dict:
+def route_query(query: str, conversation_history: list[dict] | None = None) -> Dict:
     """
     Phân loại câu hỏi và trả về loại tool cần dùng
     Returns:
@@ -264,7 +267,7 @@ def route_query(query: str) -> Dict:
     
     # Kiểm tra Google search
     if is_google_search_query(query):
-        google_result = handle_google_search(query)
+        google_result = handle_google_search(query, conversation_history=conversation_history)
         return {
             "tool": "google_search",
             "response": google_result["response"],

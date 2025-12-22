@@ -13,6 +13,8 @@ from src.app.options.query import answer  # tái dùng hàm đã chạy OK
 from src.database.connect_db import SessionLocal
 from src.database import crud, models
 from src.ingest_llama.index_qdrant import index_one_file
+from src.app.api import strategies
+
 
 app = FastAPI(title="Vertiv Chatbot API")
 
@@ -24,6 +26,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(strategies.router, prefix="/strategies", tags=["strategies"])
+
 
 # ==================== DEPENDENCY ====================
 def get_db():
@@ -39,6 +44,9 @@ class Ask(BaseModel):
     query: str
     file_names: List[str] | None = None  # None = tìm tất cả, hoặc list file names để filter
     use_google_fallback: bool = False  # Nếu RAG không có kết quả, tự động search Google
+    strategy_id: Optional[str] = None
+    conversation_history: List[dict] | None = None  # Lịch sử hội thoại [{"role": "user", "content": "..."}, ...]
+
 
 
 class CategoryCreate(BaseModel):
@@ -101,12 +109,25 @@ class FileResponse(BaseModel):
 
 # ==================== CHAT ENDPOINT ====================
 @app.post("/chat")
-def chat(req: Ask):
+def chat(req: Ask, db: Session = Depends(get_db)):
+    retrieval_config = None
+    if req.strategy_id:
+        strategy = crud.get_strategy(db, req.strategy_id)
+        if strategy:
+            retrieval_config = {
+                "initial_top_k": strategy.initial_top_k,
+                "rerank_top_k": strategy.rerank_top_k,
+                "score_threshold": strategy.score_threshold
+            }
+
     reply, sources, chunks = answer(
         req.query, 
         file_names=req.file_names,
-        use_google_fallback=req.use_google_fallback
+        use_google_fallback=req.use_google_fallback,
+        retrieval_config=retrieval_config,
+        conversation_history=req.conversation_history
     )
+
     return {
         "answer": reply,
         "sources": sources,
@@ -297,7 +318,8 @@ async def upload_file(
         
         # 3. Index vào Qdrant (BƯỚC QUAN TRỌNG - nếu fail thì dừng)
         try:
-            num_chunks = index_one_file(temp_file_path, skip_db=True)
+            from fastapi.concurrency import run_in_threadpool
+            num_chunks = await run_in_threadpool(index_one_file, temp_file_path, skip_db=True)
             if num_chunks == 0:
                 raise Exception("No chunks indexed")
         except Exception as e:
@@ -362,29 +384,33 @@ def get_product_hierarchy(db: Session = Depends(get_db)):
     Lấy cấu trúc phân cấp: Category > ProductLine > Product
     Dùng cho dropdown trong FE
     """
-    categories = crud.get_all_categories(db)
-    result = []
-    
-    for category in categories:
-        product_lines = crud.get_product_lines_by_category(db, category.id)
-        lines_data = []
+    try:
+        categories = crud.get_all_categories(db)
+        result = []
         
-        for product_line in product_lines:
-            products = crud.get_products_by_product_line(db, product_line.id)
-            products_data = [
-                {"id": p.id, "name": p.name} for p in products
-            ]
+        for category in categories:
+            product_lines = crud.get_product_lines_by_category(db, category.id)
+            lines_data = []
             
-            lines_data.append({
-                "id": product_line.id,
-                "name": product_line.name,
-                "products": products_data
+            for product_line in product_lines:
+                products = crud.get_products_by_product_line(db, product_line.id)
+                products_data = [
+                    {"id": p.id, "name": p.name} for p in products
+                ]
+                
+                lines_data.append({
+                    "id": product_line.id,
+                    "name": product_line.name,
+                    "products": products_data
+                })
+            
+            result.append({
+                "id": category.id,
+                "name": category.name,
+                "product_lines": lines_data
             })
         
-        result.append({
-            "id": category.id,
-            "name": category.name,
-            "product_lines": lines_data
-        })
-    
-    return result
+        return result
+    except Exception as e:
+        print(f"Error in get_product_hierarchy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

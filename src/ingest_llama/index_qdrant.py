@@ -42,7 +42,7 @@ CHUNK_OVERLAP  = 150
 BATCH_EMB      = 2    # Giảm batch size do model nặng hơn
 
 # Giới hạn chunk size cho BGE-M3 (8192 tokens ~ 6000-7000 chars)
-MIN_CHUNK_CHARS = 70    # Chunks nhỏ hơn sẽ được merge
+MIN_CHUNK_CHARS = 300    # Chunks nhỏ hơn sẽ được merge
 MAX_CHUNK_CHARS = 7000  # Chunks lớn hơn sẽ được split (giới hạn BGE-M3)
 
 # Khởi tạo BGE-M3 model (hỗ trợ cả dense, sparse)

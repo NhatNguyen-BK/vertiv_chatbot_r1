@@ -34,6 +34,10 @@ export default defineConfig({
       '/files': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+      },
+      '/strategies': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
       }
     }
   }

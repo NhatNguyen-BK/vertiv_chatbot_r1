@@ -54,6 +54,30 @@
   align-items: center;
 }
 
+.strategy-select {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background-color: rgba(255, 255, 255, 0.15);
+  font-size: 0.9rem;
+  color: white;
+  cursor: pointer;
+  min-width: 140px;
+  margin-right: 12px;
+}
+
+.strategy-select:focus {
+  outline: none;
+  border-color: white;
+  background-color: rgba(255, 255, 255, 0.25);
+}
+
+.strategy-select option {
+  background-color: white;
+  color: #333;
+}
+
+
 .header-left {
   display: flex;
   align-items: center;

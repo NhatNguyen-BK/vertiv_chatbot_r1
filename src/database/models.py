@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey
+from sqlalchemy import Column, String, ForeignKey, Integer, Float
 from sqlalchemy.orm import relationship
 from src.database.connect_db import Base
 
@@ -43,3 +43,14 @@ class FileVectorStore(Base):
 
     product_id = Column(String, ForeignKey("product.id", ondelete="CASCADE"), nullable=False)
     product = relationship("Product", back_populates="files")
+
+
+class RetrievalStrategy(Base):
+    __tablename__ = "retrieval_strategy"
+
+    id = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=False, unique=True)
+    initial_top_k = Column(Integer, default=10)
+    rerank_top_k = Column(Integer, default=5)
+    score_threshold = Column(Float, nullable=True)
+    description = Column(String, nullable=True)
