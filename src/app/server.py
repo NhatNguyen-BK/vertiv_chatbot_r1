@@ -44,6 +44,7 @@ class Ask(BaseModel):
     query: str
     file_names: List[str] | None = None  # None = tìm tất cả, hoặc list file names để filter
     use_google_fallback: bool = False  # Nếu RAG không có kết quả, tự động search Google
+    force_google_search: bool = False # Bắt buộc tìm kiếm Google (bỏ qua RAG)
     strategy_id: Optional[str] = None
     conversation_history: List[dict] | None = None  # Lịch sử hội thoại [{"role": "user", "content": "..."}, ...]
 
@@ -124,6 +125,7 @@ def chat(req: Ask, db: Session = Depends(get_db)):
         req.query, 
         file_names=req.file_names,
         use_google_fallback=req.use_google_fallback,
+        force_google_search=req.force_google_search,
         retrieval_config=retrieval_config,
         conversation_history=req.conversation_history
     )

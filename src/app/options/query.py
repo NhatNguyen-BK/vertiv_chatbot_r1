@@ -127,7 +127,18 @@ Chỉ trả về top {top_k} kết quả có điểm cao nhất, sắp xếp gi�
         # Fallback về kết quả gốc nếu có lỗi
         return hits[:top_k]
 
-def answer(query: str, file_names: list[str] | None = None, use_google_fallback: bool = False, retrieval_config: dict | None = None, conversation_history: list[dict] | None = None):
+def answer(query: str, file_names: list[str] | None = None, use_google_fallback: bool = False, force_google_search: bool = False, retrieval_config: dict | None = None, conversation_history: list[dict] | None = None):
+    
+    # Nếu bắt buộc search Google (từ frontend fallback flow)
+    if force_google_search:
+        print("🚀 Force Google Search requested")
+        fallback_response, fallback_sources, fallback_chunks = _google_fallback_answer(query, conversation_history)
+        # Thêm thông báo
+        if fallback_response and not fallback_response.startswith("Không có thông tin"):
+             notice = "⚠️ **Không tìm thấy trong tài liệu nội bộ. Đang sử dụng Google Search để tìm kiếm thông tin...**\n\n---\n\n"
+             fallback_response = notice + fallback_response
+        return fallback_response, fallback_sources, fallback_chunks
+
     # ===== BƯỚC 1: Routing - kiểm tra loại câu hỏi =====
 
     route_result = route_query(query, conversation_history)
@@ -235,16 +246,14 @@ def _google_fallback_answer(query: str, conversation_history: list[dict] | None 
         numbered_contexts.append(f"[Nguồn {idx}]\n{ctx}")
     
     sys = (
-        "Bạn là trợ lý thông minh. Dựa trên thông tin tìm kiếm từ Internet, trả lời câu hỏi một cách CHỈNH XÁC và ĐẦY ĐỦ.\n\n"
+        "Bạn là trợ lý thông minh. Dựa trên thông tin tìm kiếm từ Internet, trả lời câu hỏi một cách NGẮN GỌN và ĐÚNG TRỌNG TÂM.\n\n"
         "QUY TẮC QUAN TRỌNG:\n"
-        "1. Tổng hợp TẤT CẢ thông tin liên quan từ các nguồn\n"
-        "2. Trả lời PHẢI chi tiết, đầy đủ, không chỉ một câu ngắn\n"
-        "3. Nếu hỏi về thông tin, hãy liệt kê thông số kỹ thuật, tính năng, ứng dụng\n"
-        "4. Sử dụng gạch đầu dòng để trình bày rõ ràng\n"
-        "5. Trích dẫn chính xác các đoạn văn bản quan trọng\n\n"
+        "1. Trả lời trực tiếp vào câu hỏi, KHÔNG dài dòng văn tự\n"
+        "3. Sử dụng gạch đầu dòng để trình bày rõ ràng\n"
+        "4. Trích dẫn chính xác các đoạn văn bản quan trọng\n\n"
         "Trả về JSON với format:\n"
         "{\n"
-        '  "answer": "câu trả lời đầy đủ và chi tiết của bạn",\n'
+        '  "answer": "câu trả lời ngắn gọn của bạn",\n'
         '  "citations": [\n'
         '    {"quote": "đoạn trích dẫn chính xác", "context_index": 1}\n'
         '  ]\n'
@@ -255,18 +264,18 @@ def _google_fallback_answer(query: str, conversation_history: list[dict] | None 
     # Xử lý conversation_history - giới hạn 10 tin nhắn gần nhất
     messages = [{"role": "system", "content": sys}]
     
-    if conversation_history:
-        # Lấy 10 tin nhắn gần nhất
-        recent_history = conversation_history[-10:] if len(conversation_history) > 10 else conversation_history
-        messages.extend(recent_history)
+    # Không dùng history để đảm bảo ngắn gọn
+    # if conversation_history:
+    #     # Lấy 10 tin nhắn gần nhất
+    #     recent_history = conversation_history[-10:] if len(conversation_history) > 10 else conversation_history
+    #     messages.extend(recent_history)
+    pass
     
     prompt = (
         f"[Thông tin từ Internet]\n{chr(10).join(numbered_contexts)}\n\n"
         f"[Câu hỏi] {query}\n\n"
-        f"[Yêu cầu] Hãy trả lời ĐẦY ĐỦ và CHI TIẾT dựa trên thông tin trên:\n"
-        f"- Nếu câu hỏi về thông tin sản phẩm: liệt kê thông số kỹ thuật, tính năng, ứng dụng\n"
-        f"- Sử dụng gạch đầu dòng để trình bày rõ ràng\n"
-        f"- Tổng hợp từ NHIỀU nguồn nếu có thể\n"
+        f"[Yêu cầu] Hãy trả lời NGẮN GỌN và SÚC TÍCH dựa trên thông tin trên:\n"
+        f"- Sử dụng gạch đầu dòng để trình bày rõ ràng nếu cần\n"
         f"- Trích dẫn chính xác các đoạn văn bản quan trọng (giới hạn mỗi quote trong 150 ký tự)"
     )
     
@@ -277,7 +286,7 @@ def _google_fallback_answer(query: str, conversation_history: list[dict] | None 
         chat = oa.chat.completions.create(
             model=GEN_MODEL,
             messages=messages,
-            temperature=0.3,
+            temperature=0.2,
             response_format={"type": "json_object"}
         )
         
@@ -310,8 +319,9 @@ def _google_fallback_answer(query: str, conversation_history: list[dict] | None 
         if not final_sources:
             final_sources = sources[:3]
         
-        # Thêm note rằng thông tin từ Google
-        reply_with_note = f"{reply}\n\n*ℹ️ Thông tin được tổng hợp từ kết quả tìm kiếm trên Internet*"
+        # Thêm note rằng thông tin từ Google và nguồn tham khảo
+        sources_text = "\n".join(final_sources)
+        reply_with_note = f"{reply}\n\n---\n**Nguồn tham khảo:**\n{sources_text}\n\n*ℹ️ Thông tin được tổng hợp từ kết quả tìm kiếm trên Internet*"
         
         print(f"✅ Returning Google fallback answer: {len(reply_with_note)} chars, {len(final_sources)} sources, {len(chunks_data)} chunks")
         
@@ -433,16 +443,11 @@ def _rag_answer(query: str, file_names: list[str] | None = None, retrieval_confi
         numbered_contexts.append(f"[Đoạn {idx}]\n{ctx}")
     
     sys = (
-        "Bạn là trợ lý kỹ thuật Vertiv. Chỉ dùng đúng thông tin trong ngữ cảnh được cung cấp.\n\n"
-        "QUY TẮC QUAN TRỌNG:\n"
-        "1. Tổng hợp TẤT CẢ thông tin liên quan từ các đoạn ngữ cảnh\n"
-        "2. Trả lời PHẢI chi tiết, đầy đủ, không chỉ một câu ngắn\n"
-        "3. Nếu hỏi về thông tin, hãy liệt kê thông số kỹ thuật, tính năng, ứng dụng\n"
-        "4. Sử dụng gạch đầu dòng để trình bày rõ ràng\n"
-        "5. Trích dẫn chính xác các đoạn văn bản quan trọng\n\n"
+        "Bạn là trợ lý kỹ thuật Vertiv. Chỉ dùng đúng thông tin trong ngữ cảnh được cung cấp.\n"
+        "Khi trả lời, bạn PHẢI trích dẫn chính xác đoạn văn bản từ ngữ cảnh mà bạn sử dụng.\n"
         "Trả về JSON với format:\n"
         "{\n"
-        '  "answer": "câu trả lời đầy đủ và chi tiết của bạn",\n'
+        '  "answer": "câu trả lời của bạn",\n'
         '  "citations": [\n'
         '    {"quote": "đoạn trích dẫn chính xác", "context_index": 1}\n'
         '  ]\n'
@@ -453,26 +458,25 @@ def _rag_answer(query: str, file_names: list[str] | None = None, retrieval_confi
     # Xử lý conversation_history - giới hạn 10 tin nhắn gần nhất
     messages = [{"role": "system", "content": sys}]
     
-    if conversation_history:
-        # Lấy 10 tin nhắn gần nhất
-        recent_history = conversation_history[-10:] if len(conversation_history) > 10 else conversation_history
-        messages.extend(recent_history)
+    # Không dùng history để đảm bảo ngắn gọn
+    # if conversation_history:
+    #     # Lấy 10 tin nhắn gần nhất
+    #     recent_history = conversation_history[-10:] if len(conversation_history) > 10 else conversation_history
+    #     messages.extend(recent_history)
+    pass
     
     prompt = (
         f"[Ngữ cảnh]\n{chr(10).join(numbered_contexts)}\n\n"
-        f"[Câu hỏi] {query}\n\n"
-        f"[Yêu cầu] Hãy trả lời ĐẦY ĐỦ và CHI TIẾT dựa trên ngữ cảnh:\n"
-        f"- Nếu câu hỏi về thông tin sản phẩm: liệt kê thông số kỹ thuật, tính năng, ứng dụng\n"
-        f"- Sử dụng gạch đầu dòng để trình bày rõ ràng\n"
-        f"- Tổng hợp từ NHIỀU đoạn ngữ cảnh nếu có thể\n"
-        f"- Trích dẫn chính xác các đoạn văn bản quan trọng (giới hạn mỗi quote trong 150 ký tự)"
+        f"[Câu hỏi] {query}\n"
+        f"[Yêu cầu] Trả lời ngắn gọn, có gạch đầu dòng nếu là thông số. "
+        f"Trích dẫn chính xác các đoạn văn bản từ ngữ cảnh mà bạn sử dụng (giới hạn mỗi quote trong 150 ký tự)."
     )
     
     messages.append({"role": "user", "content": prompt})
     chat = oa.chat.completions.create(
         model=GEN_MODEL,
         messages=messages,
-        temperature=0.3,
+        temperature=0.2,
         response_format={"type": "json_object"}
     )
     
