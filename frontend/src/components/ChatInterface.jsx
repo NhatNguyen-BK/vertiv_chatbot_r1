@@ -73,39 +73,100 @@ function ChatInterface() {
       // Backend expects list of strings (filenames) or null for all
       const fileNames = selectedFiles.length > 0 ? selectedFiles : null
 
-      // Chuẩn bị conversation history (lấy 10 tin nhắn gần nhất, chỉ role và content)
+      // Chuẩn bị conversation history
       const conversationHistory = messages.slice(-10).map(msg => ({
         role: msg.role,
         content: msg.content
       }))
 
-      const response = await axios.post('/chat', {
+      // --- BƯỚC 1: Gọi RAG (tắt auto fallback) ---
+      const res1 = await axios.post('/chat', {
         query: userMessage.content,
         file_names: fileNames,
-        use_google_fallback: useGoogleFallback,
+        use_google_fallback: false, // Tắt fallback tự động ở server để FE xử lý
         strategy_id: selectedStrategy,
         conversation_history: conversationHistory
       })
 
-      const { answer, sources, chunks } = response.data
+      let { answer, sources, chunks } = res1.data
 
-      // Xử lý strict mode
-      let botReply = answer
-      if (strictMode && (!answer || answer.toLowerCase().startsWith('không có'))) {
-        botReply = 'Không có thông tin.'
-      } else if (sources && sources.length > 0) {
-        const sourceText = sources.join('\n')
-        botReply = `${answer}\n\n---\n**Nguồn tham khảo:**\n${sourceText}`
+      const isNoInfo = !answer || answer.toLowerCase().startsWith('không có') || answer.trim() === "Không có thông tin."
+
+      // --- BƯỚC 2: Kiểm tra nếu cần Fallback Google ---
+      if (isNoInfo && useGoogleFallback) {
+        // 1. Hiển thị thông báo đang tìm kiếm
+        const tempMessageId = Date.now()
+        const tempMessage = {
+          role: 'assistant',
+          content: '⚠️ **Không tìm thấy thông tin trong tài liệu nội bộ. Đang tìm kiếm trên Google...**',
+          id: tempMessageId
+        }
+        setMessages(prev => [...prev, tempMessage])
+
+        // 2. Gọi API lần 2 (force Google search)
+        try {
+          const res2 = await axios.post('/chat', {
+            query: userMessage.content,
+            file_names: fileNames,
+            use_google_fallback: false,
+            force_google_search: true, // Bắt buộc search Google
+            strategy_id: selectedStrategy,
+            conversation_history: conversationHistory
+          })
+
+          const googleAnswer = res2.data.answer
+          const googleSources = res2.data.sources
+          const googleChunks = res2.data.chunks
+
+          // 3. Cập nhật lại tin nhắn tạm bằng kết quả thật
+          setMessages(prev => prev.map(msg => {
+            if (msg.id === tempMessageId) {
+              return {
+                ...msg,
+                content: googleAnswer, // Server đã prepend câu thông báo rồi, nhưng cứ để đè lên
+                sources: googleSources,
+                chunks: googleChunks
+              }
+            }
+            return msg
+          }))
+
+        } catch (err) {
+          console.error("Google search error:", err)
+          // Nếu lỗi thì báo lỗi
+          setMessages(prev => prev.map(msg => {
+            if (msg.id === tempMessageId) {
+              return {
+                ...msg,
+                content: '❌ Có lỗi xảy ra khi tìm kiếm trên Google.'
+              }
+            }
+            return msg
+          }))
+        }
+
+      } else {
+        // --- Xử lý kết quả RAG bình thường ---
+
+        let botReply = answer
+        // Xử lý strict mode
+        if (strictMode && isNoInfo) {
+          botReply = 'Không có thông tin.'
+        } else if (sources && sources.length > 0) {
+          const sourceText = sources.join('\n')
+          botReply = `${answer}\n\n---\n**Nguồn tham khảo:**\n${sourceText}`
+        }
+
+        const botMessage = {
+          role: 'assistant',
+          content: botReply,
+          sources: sources,
+          chunks: chunks || []
+        }
+
+        setMessages(prev => [...prev, botMessage])
       }
 
-      const botMessage = {
-        role: 'assistant',
-        content: botReply,
-        sources: sources, // Lưu sources để hiển thị PDF viewer
-        chunks: chunks || [] // Lưu chunks để hiển thị khi user click
-      }
-
-      setMessages(prev => [...prev, botMessage])
     } catch (error) {
       console.error('Error sending message:', error)
       const errorMessage = {
