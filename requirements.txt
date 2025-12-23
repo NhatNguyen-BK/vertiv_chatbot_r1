@@ -8,7 +8,7 @@ charset-normalizer==3.4.3
 click==8.3.0
 distro==1.9.0
 fastapi==0.118.0
-fastembed==0.7.3
+fastembed==0.7.4
 ffmpy==0.6.1
 filelock==3.19.1
 fsspec==2025.9.0
@@ -68,10 +68,11 @@ urllib3==2.5.0
 uvicorn==0.37.0
 websockets==15.0.1
 # ===== Core LlamaIndex Ecosystem (Fixed Compatible Versions) =====
-llama-index-embeddings-openai==0.1.11
-llama-index-llms-openai==0.1.26
-llama-index-vector-stores-qdrant==0.2.17
-llama-parse==0.6.88
+llama-index==0.14.10
+llama-index-embeddings-openai==0.5.1
+llama-index-llms-openai==0.6.12
+llama-index-vector-stores-qdrant==0.9.0
+llama-parse==0.5.1
 fastembed==0.7.3
 FlagEmbedding>=1.2.0
 psycopg2-binary

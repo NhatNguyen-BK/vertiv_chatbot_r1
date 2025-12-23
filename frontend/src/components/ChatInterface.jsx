@@ -325,45 +325,7 @@ function ChatInterface() {
                   </div>
                 )}
 
-                {/* Nút xem chunks đã sử dụng */}
-                {message.chunks && message.chunks.length > 0 && (
-                  <div className="chunks-section">
-                    <button
-                      className="view-chunks-btn"
-                      onClick={() => toggleChunks(index)}
-                    >
-                      <Layers size={16} />
-                      <span>Xem {message.chunks.length} chunks đã sử dụng</span>
-                      {expandedChunks[index] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                    </button>
 
-                    {expandedChunks[index] && (
-                      <div className="chunks-list">
-                        {message.chunks.map((chunk, chunkIdx) => (
-                          <div key={chunkIdx} className="chunk-item">
-                            <div className="chunk-header">
-                              <span className="chunk-number">Chunk {chunkIdx + 1}</span>
-                              <span className="chunk-source">
-                                📄 {chunk.source || 'unknown.pdf'}
-                                {chunk.page_range && chunk.page_range.length > 0 && (
-                                  <span className="chunk-page"> (trang {chunk.page_range[0]})</span>
-                                )}
-                              </span>
-                              {chunk.score && (
-                                <span className="chunk-score">Score: {chunk.score.toFixed(3)}</span>
-                              )}
-                            </div>
-                            <div className="chunk-content">
-                              {chunk.text.length > 500
-                                ? chunk.text.substring(0, 500) + '...'
-                                : chunk.text}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
           ))}

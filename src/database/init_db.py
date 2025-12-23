@@ -4,7 +4,7 @@ Script để khởi tạo database schema
 Chạy file này để tạo các bảng trong database
 """
 from src.database.connect_db import engine, Base
-from src.database.models import Category, ProductLine, Product, FileVectorStore
+from src.database.models import Category, ProductLine, Product, FileVectorStore, RetrievalStrategy
 
 
 def init_database():

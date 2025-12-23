@@ -205,12 +205,28 @@ def delete_category(db: Session, category_id: str) -> bool:
 
 
 # ==================== RETRIEVAL STRATEGY ====================
-def create_strategy(db: Session, id: str, name: str, initial_top_k: int = 10, rerank_top_k: int = 5, score_threshold: Optional[float] = None, description: Optional[str] = None) -> RetrievalStrategy:
+def create_strategy(
+    db: Session, 
+    id: str, 
+    name: str, 
+    initial_top_k: int = 10, 
+    sparse_top_k: int = 10,
+    hybrid_top_k: int = 10,
+    vector_store_query_mode: str = "hybrid",
+    alpha: float = 0.5,
+    rerank_top_k: int = 5, 
+    score_threshold: Optional[float] = None, 
+    description: Optional[str] = None
+) -> RetrievalStrategy:
     """Tạo strategy cấu hình mới"""
     strategy = RetrievalStrategy(
         id=id, 
         name=name, 
         initial_top_k=initial_top_k, 
+        sparse_top_k=sparse_top_k,
+        hybrid_top_k=hybrid_top_k,
+        vector_store_query_mode=vector_store_query_mode,
+        alpha=alpha,
         rerank_top_k=rerank_top_k, 
         score_threshold=score_threshold,
         description=description

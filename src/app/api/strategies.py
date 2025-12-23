@@ -21,16 +21,22 @@ def get_db():
 class StrategyCreate(BaseModel):
     name: str
     initial_top_k: int = 10
+    sparse_top_k: int = 10
+    hybrid_top_k: int = 10
+    vector_store_query_mode: str = "hybrid"
+    alpha: float = 0.5
     rerank_top_k: int = 5
-    score_threshold: Optional[float] = None
     description: Optional[str] = None
 
 class StrategyResponse(BaseModel):
     id: str
     name: str
     initial_top_k: int
+    sparse_top_k: int
+    hybrid_top_k: int
+    vector_store_query_mode: str
+    alpha: float
     rerank_top_k: int
-    score_threshold: Optional[float]
     description: Optional[str]
 
     class Config:
@@ -38,9 +44,13 @@ class StrategyResponse(BaseModel):
 
 class TestStrategyRequest(BaseModel):
     query: str
+    file_names: Optional[List[str]] = None
     initial_top_k: int = 10
+    sparse_top_k: int = 10
+    hybrid_top_k: int = 10
+    vector_store_query_mode: str = "hybrid"
+    alpha: float = 0.5
     rerank_top_k: int = 5
-    score_threshold: Optional[float] = None
 
 @router.post("/", response_model=StrategyResponse)
 def create_strategy(strategy: StrategyCreate, db: Session = Depends(get_db)):
@@ -55,8 +65,12 @@ def create_strategy(strategy: StrategyCreate, db: Session = Depends(get_db)):
         id, 
         strategy.name, 
         strategy.initial_top_k, 
+        strategy.sparse_top_k, 
+        strategy.hybrid_top_k, 
+        strategy.vector_store_query_mode, 
+        strategy.alpha, 
         strategy.rerank_top_k, 
-        strategy.score_threshold, 
+        None,  # score_threshold
         strategy.description
     )
 
@@ -80,23 +94,21 @@ def test_strategy(req: TestStrategyRequest):
     # Create a temporary config object
     retrieval_config = {
         "initial_top_k": req.initial_top_k,
-        "rerank_top_k": req.rerank_top_k,
-        "score_threshold": req.score_threshold
+        "sparse_top_k": req.sparse_top_k,
+        "hybrid_top_k": req.hybrid_top_k,
+        "vector_store_query_mode": req.vector_store_query_mode,
+        "alpha": req.alpha,
+        "rerank_top_k": req.rerank_top_k
     }
     
-    # Call answer with config
-    # We need to update answer() to accept retrieval_config
-    # Ideally answer() should return structured data including chunks
-    
-    # Note: query.py's answer() currently returns (reply, sources, chunks)
-    # response, sources, chunks = answer(...)
-    
+    # Call answer with config and file_names
     response, sources, chunks = answer(
         query=req.query,
+        file_names=req.file_names,
         retrieval_config=retrieval_config
     )
     
     return {
-        "chunks": chunks,
-        "response": response
+        "answer": response,
+        "chunks": chunks
     }

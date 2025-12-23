@@ -50,7 +50,11 @@ class RetrievalStrategy(Base):
 
     id = Column(String, primary_key=True, index=True)
     name = Column(String, nullable=False, unique=True)
-    initial_top_k = Column(Integer, default=10)
+    initial_top_k = Column(Integer, default=10) # Maps to similarity_top_k
+    sparse_top_k = Column(Integer, default=10)
+    hybrid_top_k = Column(Integer, default=10)
+    vector_store_query_mode = Column(String, default="hybrid")
+    alpha = Column(Float, default=0.5)
     rerank_top_k = Column(Integer, default=5)
     score_threshold = Column(Float, nullable=True)
     description = Column(String, nullable=True)

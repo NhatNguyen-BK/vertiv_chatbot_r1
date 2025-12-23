@@ -1,4 +1,4 @@
-# src/app/query.py
+# src/app/options/query.py
 from qdrant_client import QdrantClient
 from qdrant_client.models import Prefetch, QueryRequest
 from openai import OpenAI
@@ -6,6 +6,22 @@ import os
 from dotenv import load_dotenv
 from FlagEmbedding import BGEM3FlagModel
 import json
+
+# LlamaIndex imports
+from llama_index.core import VectorStoreIndex, QueryBundle, Settings, StorageContext
+from llama_index.vector_stores.qdrant import QdrantVectorStore
+from llama_index.core.postprocessor import LLMRerank
+from llama_index.core.vector_stores.types import (
+    VectorStoreQueryMode,
+    MetadataFilters,
+    MetadataFilter,
+    FilterOperator,
+)
+from llama_index.core.embeddings import BaseEmbedding
+from llama_index.core.schema import NodeWithScore
+from llama_index.llms.openai import OpenAI as LlamaOpenAI
+from typing import List, Any
+
 load_dotenv()
 
 # Import tools mới
@@ -20,7 +36,7 @@ GEN_MODEL   = os.getenv("GEN_MODEL", "gpt-4o-mini")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "vertiv_docs1")
 
 client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
-collections = client.get_collections()
+# collections = client.get_collections() # Optional check
 
 # Khởi tạo BGE-M3 model
 print("🔄 Loading BGE-M3 model for query...")
@@ -51,81 +67,24 @@ def _embed_sparse(text: str):
         "values": [float(val) for val in weights.values()]
     }
 
-def _llm_rerank(query: str, hits: list, top_k: int = 5):
-    """
-    Sử dụng LLM (OpenAI) để đánh giá lại độ liên quan của các chunks
+# Wrapper cho LlamaIndex Embedding
+class BGEM3LlamaIndexEmbedding(BaseEmbedding):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
     
-    Args:
-        query: Câu hỏi của người dùng
-        hits: List các ScoredPoint từ Qdrant
-        top_k: Số lượng kết quả trả về (mặc định 5)
+    def _get_query_embedding(self, query: str) -> List[float]:
+        return _embed(query)
     
-    Returns:
-        List các chunks đã được rerank theo thứ tự relevance
-    """
-    if len(hits) <= top_k:
-        return hits
+    def _get_text_embedding(self, text: str) -> List[float]:
+        return _embed(text)
     
-    # Chuẩn bị prompt cho LLM
-    chunks_text = []
-    for idx, hit in enumerate(hits):
-        payload = hit.payload or {}
-        text = payload.get("source_text", "")[:500]  # Giới hạn 500 ký tự
-        chunks_text.append(f"[{idx}] {text}")
-    
-    prompt = f"""Cho câu hỏi: "{query}"
+    async def _aget_query_embedding(self, query: str) -> List[float]:
+        return self._get_query_embedding(query)
 
-Đánh giá độ liên quan của các đoạn văn sau (0-10 điểm):
-
-{chr(10).join(chunks_text)}
-
-Trả về JSON array với format: [{{"index": 0, "score": 9}}, {{"index": 1, "score": 7}}, ...]
-Chỉ trả về top {top_k} kết quả có điểm cao nhất, sắp xếp giảm dần."""
-
-    try:
-        response = oa.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "Bạn là chuyên gia đánh giá độ liên quan của văn bản. Chỉ trả về JSON, không giải thích."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0,
-            response_format={"type": "json_object"}
-        )
-        
-        
-        result = json.loads(response.choices[0].message.content)
-        print("Rerank result:", result)
-        
-        # Xử lý kết quả trả về
-        if isinstance(result, dict) and "results" in result:
-            rankings = result["results"]
-        elif isinstance(result, list):
-            rankings = result
-        else:
-            # Fallback nếu format không đúng
-            return hits[:top_k]
-        
-        # Sắp xếp lại hits theo rankings
-        reranked = []
-        for item in rankings[:top_k]:
-            idx = item.get("index", -1)
-            if 0 <= idx < len(hits):
-                reranked.append(hits[idx])
-        
-        # Nếu không đủ top_k, thêm các chunks còn lại
-        if len(reranked) < top_k:
-            used_indices = {item.get("index") for item in rankings}
-            for idx, hit in enumerate(hits):
-                if idx not in used_indices and len(reranked) < top_k:
-                    reranked.append(hit)
-        
-        return reranked[:top_k]
-    
-    except Exception as e:
-        print(f"LLM rerank error: {e}")
-        # Fallback về kết quả gốc nếu có lỗi
-        return hits[:top_k]
+# Setup Settings globally (optional but good practice)
+Settings.embed_model = BGEM3LlamaIndexEmbedding()
+# Use existing OpenAI key for LlamaIndex LLM
+Settings.llm = LlamaOpenAI(model=GEN_MODEL, api_key=os.getenv("OPENAI_API_KEY"))
 
 def answer(query: str, file_names: list[str] | None = None, use_google_fallback: bool = False, force_google_search: bool = False, retrieval_config: dict | None = None, conversation_history: list[dict] | None = None):
     
@@ -340,104 +299,186 @@ def _google_fallback_answer(query: str, conversation_history: list[dict] | None 
 
 def _rag_answer(query: str, file_names: list[str] | None = None, retrieval_config: dict | None = None, conversation_history: list[dict] | None = None):
     # Default config
-    initial_top_k = 10
+    # initial_top_k acts as similarity_top_k (dense)
+    similarity_top_k = 10
+    sparse_top_k = 10
+    hybrid_top_k = 10
+    vector_store_query_mode = "hybrid"
+    alpha = 0.5
     rerank_top_k = 5
-    score_threshold = None # Not used directly in query yet, maybe filter later
+    score_threshold = None 
 
     if retrieval_config:
-        initial_top_k = retrieval_config.get("initial_top_k", initial_top_k)
+        similarity_top_k = retrieval_config.get("initial_top_k", similarity_top_k)
+        sparse_top_k = retrieval_config.get("sparse_top_k", sparse_top_k)
+        hybrid_top_k = retrieval_config.get("hybrid_top_k", hybrid_top_k)
+        vector_store_query_mode = retrieval_config.get("vector_store_query_mode", vector_store_query_mode)
+        alpha = retrieval_config.get("alpha", alpha)
         rerank_top_k = retrieval_config.get("rerank_top_k", rerank_top_k)
         score_threshold = retrieval_config.get("score_threshold", score_threshold)
 
-    # 1) Lấy vector câu hỏi (dense và sparse)
+    print(f"✅ Connected to Qdrant. Using collection: {QDRANT_COLLECTION}")
+    print(f"🔍 Parameters: sim_k={similarity_top_k}, sparse_k={sparse_top_k}, hybrid_k={hybrid_top_k}, mode={vector_store_query_mode}, alpha={alpha}")
 
-    collections = client.get_collections()
-    print(f"✅ Connected to Qdrant. Collections: {[c.name for c in collections.collections]}")
-    dense_vec = _embed(query)
-    sparse_vec = _embed_sparse(query)
-    print("Collection: ", QDRANT_COLLECTION)
-    # 2) Hybrid search trong Qdrant (kết hợp dense + sparse)
-    # Sử dụng prefetch để tìm riêng rồi kết hợp
-    search_params = {
-        "collection_name": QDRANT_COLLECTION,
-        "prefetch": [
-            Prefetch(
-                query=dense_vec,
-                using="dense",
-                limit=initial_top_k
-            ),
-            Prefetch(
-                query=sparse_vec,
-                using="sparse",
-                limit=initial_top_k
-            )
-        ],
-        "query": dense_vec,  # Fusion vector để re-rank
-        "using": "dense",
-        "limit": initial_top_k,
-    }
-
+    # ===== REFRACTION: LlamaIndex Retreival =====
     
-    # Thêm filter nếu có file_names (filter theo source field trong metadata)
+    # 1. Setup Vector Store
+    # NOTE: Assuming 'dense' and 'sparse' vector names from original code logic.
+    vector_store = QdrantVectorStore(
+        client=client,
+        collection_name=QDRANT_COLLECTION,
+        enable_hybrid=True, # Enable Hybrid search
+        batch_size=15,
+    )
+    
+    # 2. Setup Index
+    # We use our custom embeddings wrapper
+    index = VectorStoreIndex.from_vector_store(
+        vector_store=vector_store,
+        embed_model=BGEM3LlamaIndexEmbedding()
+    )
+    
+    # 3. Build Filters
+    filters_chunk = None
     if file_names and len(file_names) > 0:
-        from qdrant_client.models import Filter, FieldCondition, MatchAny
-        query_filter = Filter(
-            must=[
-                FieldCondition(
-                    key="source",  # Filter theo source trong metadata
-                    match=MatchAny(any=file_names)
-                )
+        filters_chunk = MetadataFilters(
+            filters=[
+                MetadataFilter(key="source", operator=FilterOperator.IN, value=file_names),
             ]
         )
-        # Thêm filter vào cả prefetch
-        search_params["prefetch"][0].filter = query_filter
-        search_params["prefetch"][1].filter = query_filter
-        search_params["query_filter"] = query_filter
     
-    hits = client.query_points(**search_params).points
-    print("sssssssssssssss: ", hits)
+    # Map string mode to Enum
+    try:
+        vs_mode = VectorStoreQueryMode(vector_store_query_mode)
+    except ValueError:
+        print(f"⚠️ Invalid query mode '{vector_store_query_mode}', defaulting to HYBRID")
+        vs_mode = VectorStoreQueryMode.HYBRID
+
+    # 4. Create Retriever
+    retriever = index.as_retriever(
+        similarity_top_k=similarity_top_k, 
+        sparse_top_k=sparse_top_k, 
+        vector_store_query_mode=vs_mode,
+        filters=filters_chunk,
+        alpha=alpha,
+        hybrid_top_k=hybrid_top_k
+    )
     
-    # 3) LLM Reranking - Sử dụng OpenAI để đánh giá lại kết quả
-    if len(hits) > 0:
-        reranked_hits = _llm_rerank(query, hits, top_k=rerank_top_k)
+    # 5. Retrieve Nodes
+    # NOTE: LlamaIndex will generate embeddings using our embed_model
+    # For hybrid, it expects the vector store to handle sparse generation or provided vector.
+    # Since we didn't explicitly pass a sparse function to QdrantVectorStore, 
+    # if it fails we might need to adjust. But we'll try standard flow first.
+    print(f"🔍 Retrieving nodes for query: {query}")
+    try:
+        retrieved_nodes = retriever.retrieve(query)
+    except Exception as e:
+        print(f"⚠️ Error in retrieval: {e}")
+        # Fallback to pure dense if hybrid fails?
+        # Or return empty
+        return "Có lỗi xảy ra khi truy vấn dữ liệu.", [], []
 
+    print(f"✅ Retrieved {len(retrieved_nodes)} nodes from Qdrant")
 
+    # 6. Rerank using LLM
+    if retrieved_nodes:
+        # Define custom Vietnamese rerank prompt to match original logic
+        rerank_prompt_str = """
+Một danh sách các tài liệu (các đoạn văn bản) được cung cấp bên dưới.
+Mỗi tài liệu có một số thứ tự bên cạnh. Một câu hỏi cũng được cung cấp.
+
+Nhiệm vụ:
+- Xếp hạng các tài liệu dựa trên mức độ hữu ích của chúng để trả lời câu hỏi.
+- Gán điểm độ liên quan từ 1 đến 10 cho mỗi tài liệu (10 = rất liên quan, 1 = ít liên quan).
+- Loại bỏ các tài liệu không liên quan.
+- Chỉ trả về danh sách đã xếp hạng theo thứ tự giảm dần của độ liên quan.
+
+Định dạng mẫu:
+Tài liệu 1:
+<nội dung tài liệu 1>
+
+Tài liệu 2:
+<nội dung tài liệu 2>
+
+...
+
+Câu hỏi: <câu hỏi của người dùng>
+
+Câu trả lời:
+Doc: 2, Relevance: 9
+Doc: 5, Relevance: 7
+Doc: 3, Relevance: 4
+
+---
+
+Bây giờ hãy thử với dữ liệu sau:
+
+{context_str}
+Câu hỏi: {query_str}
+Câu trả lời:
+"""
+        from llama_index.core.prompts import PromptTemplate, PromptType
+        custom_rerank_prompt = PromptTemplate(
+            rerank_prompt_str, prompt_type=PromptType.CHOICE_SELECT
+        )
+
+        reranker = LLMRerank(
+            choice_batch_size=5,
+            top_n=rerank_top_k,
+            llm=Settings.llm,
+            choice_select_prompt=custom_rerank_prompt
+        )
+        
+        print("🔄 Reranking nodes...")
+        try:
+            reranked_nodes = reranker.postprocess_nodes(
+                retrieved_nodes, query_bundle=QueryBundle(query)
+            )
+        except Exception as e:
+            print(f"⚠️ Error in reranking: {e}")
+            reranked_nodes = retrieved_nodes[:rerank_top_k]
     else:
-        reranked_hits = hits
+        reranked_nodes = []
     
-    # 4) Gom ngữ cảnh & nguồn từ kết quả đã rerank
+    print(f"✅ Post-rerank count: {len(reranked_nodes)}")
+
+    # 7. Convert nodes to internal format
     contexts = []
     sources = []  # list[str] để hiển thị
     chunks_data = []  # Lưu thông tin chunks để trả về frontend
-    
-    for h in reranked_hits:
-        p = h.payload or {}
-        meta = p.get("metadata", {})  # nếu lúc upsert bạn gộp metadata vào payload
-        # tùy vào cách bạn lưu, thử theo 2 key phổ biến:
-        src = meta.get("source") or p.get("source") or "unknown.pdf"
-        pages = meta.get("page_range") or p.get("page_range")
+
+    for node in reranked_nodes:
+        # node is NodeWithScore
+        # Metadata is in node.metadata
+        # Text is node.text (or node.get_content())
+        meta = node.metadata
+        
+        src = meta.get("source", "unknown.pdf")
+        pages = meta.get("page_range")
         page_str = ""
         if isinstance(pages, list) and pages:
             page_str = f" (trang {pages[0]})"
         
-        source_text = p.get("source_text", "")
-        contexts.append(source_text)  # phần text gốc để làm RAG
+        # Existing logic used 'source_text' from payload directly if available. 
+        # LlamaIndex usually puts payload into metadata.
+        # But 'text' field of Node should be the chunk text.
+        source_text = node.get_content()
+        
+        contexts.append(source_text)
         sources.append(f"- **{src}**{page_str}")
         
-        # Thêm thông tin chunk để trả về frontend
         chunks_data.append({
             "text": source_text,
             "source": src,
             "page_range": pages if isinstance(pages, list) else [],
-            "score": h.score if hasattr(h, 'score') else None
+            "score": node.score
         })
-
-    # 4) Nếu không có dữ liệu thì báo không có
+    
+    # 8. Nếu không có dữ liệu thì báo không có
     if not contexts:
         return "Không có thông tin.", [], []
 
-    # 5) Gọi LLM tổng hợp kèm guideline ngắn + ngữ cảnh
-    # Đánh số các đoạn ngữ cảnh
+    # 9. Gọi LLM tổng hợp (reuse existing prompt logic)
     numbered_contexts = []
     for idx, ctx in enumerate(contexts, 1):
         numbered_contexts.append(f"[Đoạn {idx}]\n{ctx}")
@@ -455,15 +496,7 @@ def _rag_answer(query: str, file_names: list[str] | None = None, retrieval_confi
         "Nếu không có thông tin, trả về answer là 'Không có thông tin.' và citations rỗng."
     )
     
-    # Xử lý conversation_history - giới hạn 10 tin nhắn gần nhất
     messages = [{"role": "system", "content": sys}]
-    
-    # Không dùng history để đảm bảo ngắn gọn
-    # if conversation_history:
-    #     # Lấy 10 tin nhắn gần nhất
-    #     recent_history = conversation_history[-10:] if len(conversation_history) > 10 else conversation_history
-    #     messages.extend(recent_history)
-    pass
     
     prompt = (
         f"[Ngữ cảnh]\n{chr(10).join(numbered_contexts)}\n\n"
@@ -494,12 +527,12 @@ def _rag_answer(query: str, file_names: list[str] | None = None, retrieval_confi
             ctx_idx = citation.get("context_index", 1) - 1  # convert to 0-based
             quote = citation.get("quote", "")
             
-            if 0 <= ctx_idx < len(reranked_hits):
-                h = reranked_hits[ctx_idx]
-                p = h.payload or {}
-                meta = p.get("metadata", {})
-                src = meta.get("source") or p.get("source") or "unknown.pdf"
-                pages = meta.get("page_range") or p.get("page_range")
+            if 0 <= ctx_idx < len(reranked_nodes):
+                # Retrieve metadata again from correct node
+                node = reranked_nodes[ctx_idx]
+                meta = node.metadata
+                src = meta.get("source", "unknown.pdf")
+                pages = meta.get("page_range")
                 page_str = ""
                 if isinstance(pages, list) and pages:
                     page_str = f" (trang {pages[0]})"

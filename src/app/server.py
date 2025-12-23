@@ -16,7 +16,7 @@ from src.ingest_llama.index_qdrant import index_one_file
 from src.app.api import strategies
 
 
-app = FastAPI(title="Vertiv Chatbot API")
+app = FastAPI(title="Vertiv Chatbot API", redirect_slashes=True)
 
 # Thêm CORS middleware để React frontend có thể gọi API
 app.add_middleware(
@@ -116,7 +116,11 @@ def chat(req: Ask, db: Session = Depends(get_db)):
         strategy = crud.get_strategy(db, req.strategy_id)
         if strategy:
             retrieval_config = {
-                "initial_top_k": strategy.initial_top_k,
+                "initial_top_k": strategy.initial_top_k, # similarity_top_k
+                "sparse_top_k": getattr(strategy, "sparse_top_k", 10),
+                "hybrid_top_k": getattr(strategy, "hybrid_top_k", 10),
+                "vector_store_query_mode": getattr(strategy, "vector_store_query_mode", "hybrid"),
+                "alpha": getattr(strategy, "alpha", 0.5),
                 "rerank_top_k": strategy.rerank_top_k,
                 "score_threshold": strategy.score_threshold
             }
